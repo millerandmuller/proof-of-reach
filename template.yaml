@@ -40,7 +40,7 @@ Globals:
     Architectures: [arm64]
     CodeUri: src/
     Timeout: 30
-    MemorySize: 256
+    MemorySize: 1024  # more memory is more CPU; the consumers are CPU-bound on JSON and the SDK
     Environment:
       Variables:
         LEDGER_TABLE: !Ref LedgerTable
@@ -79,10 +79,10 @@ Resources:
   SesTopic:
     Type: AWS::SNS::Topic
 
-  TopicPolicy:
+  RcsEventsTopicPolicy:
     Type: AWS::SNS::TopicPolicy
     Properties:
-      Topics: [!Ref RcsEventsTopic, !Ref RcsTwoWayTopic, !Ref WhatsAppTopic, !Ref SesTopic]
+      Topics: [!Ref RcsEventsTopic]
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -90,14 +90,44 @@ Resources:
             Effect: Allow
             Principal: {Service: sms-voice.amazonaws.com}
             Action: sns:Publish
-            Resource: [!Ref RcsEventsTopic, !Ref RcsTwoWayTopic]
+            Resource: !Ref RcsEventsTopic
             Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+
+  RcsTwoWayTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref RcsTwoWayTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EndUserMessagingSmsTwoWay
+            Effect: Allow
+            Principal: {Service: sms-voice.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref RcsTwoWayTopic
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+
+  WhatsAppTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref WhatsAppTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
           - Sid: EndUserMessagingSocial
             Effect: Allow
             Principal: {Service: social-messaging.amazonaws.com}
             Action: sns:Publish
             Resource: !Ref WhatsAppTopic
             Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+
+  SesTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref SesTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
           - Sid: SesEventPublishing
             Effect: Allow
             Principal: {Service: ses.amazonaws.com}
@@ -150,6 +180,125 @@ Resources:
             Statement:
               - {Effect: Allow, Action: sns:Publish, Resource: !Ref RcsTwoWayTopic}
 
+  # ---------------------------------------------------------------- buffering: SNS -> SQS -> consumer
+  # The account Lambda limit can be as low as 10 concurrent executions, so a replay or a real burst must queue, not fan out.
+  RcsEventsDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+  RcsEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt RcsEventsDlq.Arn
+        maxReceiveCount: 20
+  RcsEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref RcsEventsQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: sns.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt RcsEventsQueue.Arn
+            Condition: {ArnEquals: {"aws:SourceArn": !Ref RcsEventsTopic}}
+  RcsEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref RcsEventsTopic
+      Endpoint: !GetAtt RcsEventsQueue.Arn
+  RcsTwoWayDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+  RcsTwoWayQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt RcsTwoWayDlq.Arn
+        maxReceiveCount: 20
+  RcsTwoWayQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref RcsTwoWayQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: sns.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt RcsTwoWayQueue.Arn
+            Condition: {ArnEquals: {"aws:SourceArn": !Ref RcsTwoWayTopic}}
+  RcsTwoWaySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref RcsTwoWayTopic
+      Endpoint: !GetAtt RcsTwoWayQueue.Arn
+  WhatsAppDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+  WhatsAppQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt WhatsAppDlq.Arn
+        maxReceiveCount: 20
+  WhatsAppQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref WhatsAppQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: sns.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt WhatsAppQueue.Arn
+            Condition: {ArnEquals: {"aws:SourceArn": !Ref WhatsAppTopic}}
+  WhatsAppSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref WhatsAppTopic
+      Endpoint: !GetAtt WhatsAppQueue.Arn
+  SesDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+  SesQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 180
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SesDlq.Arn
+        maxReceiveCount: 20
+  SesQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [!Ref SesQueue]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: sns.amazonaws.com}
+            Action: sqs:SendMessage
+            Resource: !GetAtt SesQueue.Arn
+            Condition: {ArnEquals: {"aws:SourceArn": !Ref SesTopic}}
+  SesSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: sqs
+      TopicArn: !Ref SesTopic
+      Endpoint: !GetAtt SesQueue.Arn
+
   # ---------------------------------------------------------------- consumers (F2 to F5)
   RcsEventsFn:
     Type: AWS::Serverless::Function
@@ -160,28 +309,56 @@ Resources:
         - Statement:
             - {Effect: Allow, Action: sms-voice:PutMessageFeedback, Resource: "*"}
       Events:
-        Topic: {Type: SNS, Properties: {Topic: !Ref RcsEventsTopic}}
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt RcsEventsQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
   RcsTwoWayFn:
     Type: AWS::Serverless::Function
     Properties:
       Handler: consumers.rcs_twoway.handler
       Policies: *consumer_policies
       Events:
-        Topic: {Type: SNS, Properties: {Topic: !Ref RcsTwoWayTopic}}
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt RcsTwoWayQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
   WhatsAppFn:
     Type: AWS::Serverless::Function
     Properties:
       Handler: consumers.whatsapp_events.handler
       Policies: *consumer_policies
       Events:
-        Topic: {Type: SNS, Properties: {Topic: !Ref WhatsAppTopic}}
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt WhatsAppQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
   SesFn:
     Type: AWS::Serverless::Function
     Properties:
       Handler: consumers.ses_events.handler
       Policies: *consumer_policies
       Events:
-        Topic: {Type: SNS, Properties: {Topic: !Ref SesTopic}}
+        Queue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt SesQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 1
+            FunctionResponseTypes: [ReportBatchItemFailures]
+            ScalingConfig: {MaximumConcurrency: 2}
 
   # ---------------------------------------------------------------- rule engine and senders (F6 to F9)
   EngineFn:

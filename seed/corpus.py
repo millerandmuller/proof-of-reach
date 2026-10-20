@@ -95,9 +95,9 @@ def _events_for_rung(rid: str, notice_id: str, channel: str, steps: str, at0: da
     mid = f"replay-{channel}-{rid}"
     pb = build_postback(notice_id, rid)
     at = lambda frac: at0 + timedelta(seconds=frac * window)
-    f_del = rng.uniform(0.05, 0.15)
-    f_read = f_del + rng.uniform(0.1, 0.35)
-    f_ack = f_read + rng.uniform(0.05, 0.25)
+    f_del = rng.uniform(0.04, 0.12)
+    f_read = f_del + rng.uniform(0.08, 0.22)
+    f_ack = f_read + rng.uniform(0.04, 0.16)  # latest possible: 0.5 of the window, the rest is slack for queueing
     if steps == "silent":
         return
     if channel == "rcs":

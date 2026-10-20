@@ -172,6 +172,7 @@
 
   function poll() {
     api("/state").then(function (res) {
+      if (res.status >= 300 || !res.body.status) throw new Error("bad response " + res.status);
       banner("");
       renderState(res.body);
     }).catch(function () {

@@ -1,14 +1,14 @@
-"""F3: RCS two-way SNS topic -> ledger. A suggestion tap is the acknowledgment; free text is a reply."""
-import json
+"""F3: RCS two-way topic (SNS -> SQS) -> ledger. A suggestion tap is the acknowledgment; free text is a reply."""
+from common import normalize, pipeline
+from consumers import batch
 
-from common import ledger, normalize, pipeline
+
+def handle(tbl, message, sns_timestamp) -> int:
+    env = normalize.normalize_rcs_inbound(message, sns_timestamp)
+    if env is None:
+        return 0
+    pipeline.process(tbl, env)
+    return 1
 
 
-def handler(event, _context=None):
-    tbl = ledger.table()
-    results = []
-    for record in event["Records"]:
-        env = normalize.normalize_rcs_inbound(json.loads(record["Sns"]["Message"]), record["Sns"]["Timestamp"])
-        if env is not None:
-            results.append(pipeline.process(tbl, env))
-    return {"processed": len(results)}
+handler = batch.make_handler(handle)

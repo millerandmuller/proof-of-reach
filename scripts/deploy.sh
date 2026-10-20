@@ -38,10 +38,12 @@ echo "==> sam deploy ($STACK)"
 sam deploy --stack-name "$STACK" --region "$REGION" --resolve-s3 \
   --capabilities CAPABILITY_IAM --no-confirm-changeset --no-fail-on-empty-changeset \
   --parameter-overrides \
-    "AgentCodeBucket=$CODE_BUCKET" "AgentCodeKey=$KEY" \
-    "RcsAgentId=${RCS_AGENT_ID:-}" "WhatsAppPhoneNumberId=${WHATSAPP_PHONE_NUMBER_ID:-}" \
-    "WhatsAppTemplateName=${WHATSAPP_TEMPLATE_NAME:-}" "SesSender=${SES_SENDER:-}" \
-    "WindowSeconds=${WINDOW_SECONDS:-90}"
+    "ParameterKey=AgentCodeBucket,ParameterValue=$CODE_BUCKET" "ParameterKey=AgentCodeKey,ParameterValue=$KEY" \
+    "ParameterKey=RcsAgentId,ParameterValue=${RCS_AGENT_ID:-}" \
+    "ParameterKey=WhatsAppPhoneNumberId,ParameterValue=${WHATSAPP_PHONE_NUMBER_ID:-}" \
+    "ParameterKey=WhatsAppTemplateName,ParameterValue=${WHATSAPP_TEMPLATE_NAME:-}" \
+    "ParameterKey=SesSender,ParameterValue=${SES_SENDER:-}" \
+    "ParameterKey=WindowSeconds,ParameterValue=${WINDOW_SECONDS:-90}"
 
 out() { aws cloudformation describe-stacks --stack-name "$STACK" --region "$REGION" \
   --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }

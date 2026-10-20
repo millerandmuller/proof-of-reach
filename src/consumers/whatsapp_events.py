@@ -1,14 +1,13 @@
-"""F4: WhatsApp event destination (SNS) -> ledger. Statuses, button replies, free text."""
-import json
+"""F4: WhatsApp event destination (SNS -> SQS) -> ledger. Statuses, button replies, free text."""
+from common import normalize, pipeline
+from consumers import batch
 
-from common import ledger, normalize, pipeline
+
+def handle(tbl, message, _sns_timestamp) -> int:
+    envelopes = normalize.normalize_whatsapp(message)
+    for env in envelopes:
+        pipeline.process(tbl, env)
+    return len(envelopes)
 
 
-def handler(event, _context=None):
-    tbl = ledger.table()
-    count = 0
-    for record in event["Records"]:
-        for env in normalize.normalize_whatsapp(json.loads(record["Sns"]["Message"])):
-            pipeline.process(tbl, env)
-            count += 1
-    return {"processed": count}
+handler = batch.make_handler(handle)

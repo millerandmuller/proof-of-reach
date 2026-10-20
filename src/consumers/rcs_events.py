@@ -1,14 +1,14 @@
-"""F2: RCS configuration-set event destination (SNS) -> ledger. Delivered, read, failed, fallback."""
-import json
+"""F2: RCS configuration-set event destination (SNS -> SQS) -> ledger. Delivered, read, failed, fallback."""
+from common import normalize, pipeline
+from consumers import batch
 
-from common import ledger, normalize, pipeline
+
+def handle(tbl, message, _sns_timestamp) -> int:
+    env = normalize.normalize_rcs_status(message)
+    if env is None:
+        return 0
+    pipeline.process(tbl, env)
+    return 1
 
 
-def handler(event, _context=None):
-    tbl = ledger.table()
-    results = []
-    for record in event["Records"]:
-        env = normalize.normalize_rcs_status(json.loads(record["Sns"]["Message"]))
-        if env is not None:
-            results.append(pipeline.process(tbl, env))
-    return {"processed": len(results)}
+handler = batch.make_handler(handle)
