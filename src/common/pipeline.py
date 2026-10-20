@@ -19,8 +19,14 @@ def _resolve(tbl, env: Dict[str, Any]) -> bool:
     return False
 
 
+def _is_replay(env: Dict[str, Any]) -> bool:
+    """Replayed events carry `replay-` ids (see seed/corpus.py); live provider ids never do."""
+    return any(str(env.get(k) or "").startswith("replay-") for k in ("provider_message_id", "lookup_id"))
+
+
 def process(tbl, env: Dict[str, Any], close_loop: Optional[Callable] = None) -> Dict[str, Any]:
     close_loop = close_loop or feedback.close_loop  # resolved at call time so tests can patch the module
+    env["replayed"] = env.get("replayed", False) or _is_replay(env)
     resolved = _resolve(tbl, env)
     if env["tier"] == "reply":
         if not resolved:

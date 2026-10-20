@@ -81,10 +81,10 @@ def test_ack_after_unreachable_verdict_wins(notice):
 def test_failure_reason_flows_into_unreachable_reason(notice):
     sched = lambda *a: None
     rule_engine.run_stage(notice, N, 1, clients={}, schedule=sched)
-    ledger.record_failure(notice, N, "b", "email", "Bounce", "email Permanent/NoEmail", "t")
+    ledger.record_failure(notice, N, "b", "email", "Bounce", "bounce Permanent/NoEmail", "t")
     for s in (2, 3, 4):
         rule_engine.run_stage(notice, N, s, clients={}, schedule=sched)
-    assert "email Permanent/NoEmail" in ledger.get_recipient(notice, N, "b")["unreachable_reason"]
+    assert "bounce Permanent/NoEmail" in ledger.get_recipient(notice, N, "b")["unreachable_reason"]
 
 
 def test_all_live_sends_failing_raises(tbl):
@@ -111,3 +111,16 @@ def test_unexpected_exception_is_not_swallowed(tbl):
 
     with pytest.raises(KeyError):
         rule_engine.run_stage(tbl, N, 1, clients={"rcs": Bug()}, schedule=lambda *a: None)
+
+
+def test_delivered_and_read_recipients_are_not_called_unreachable_at_close(notice):
+    sched = lambda *a: None
+    rule_engine.run_stage(notice, N, 1, clients={}, schedule=sched)
+    for rid, tier, ev in (("a", "delivered", "RCS_DELIVERED"), ("b", "read", "RCS_READ")):
+        ledger.record_event(notice, {"notice_id": N, "recipient_id": rid, "channel": "rcs", "event": ev, "tier": tier,
+                                     "provider_message_id": f"m-{rid}", "provider_timestamp": "t", "raw": {"x": 1}})
+    for s in (2, 3, 4):
+        rule_engine.run_stage(notice, N, s, clients={}, schedule=sched)
+    assert ledger.get_recipient(notice, N, "a")["state"] == "delivered"
+    assert ledger.get_recipient(notice, N, "b")["state"] == "read"
+    assert ledger.get_recipient(notice, N, "c")["state"] == "unreachable"  # sent on every rung, never delivered

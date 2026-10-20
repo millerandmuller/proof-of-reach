@@ -1,0 +1,5 @@
+[
+  {"recipient_id": "live-phone-a", "label": "Phone A (RCS)", "segment": "consumer", "phone": "+1XXXXXXXXXX", "email": "", "rcs_capable": true, "whatsapp": false},
+  {"recipient_id": "live-phone-b", "label": "Phone B (WhatsApp)", "segment": "consumer", "phone": "+1XXXXXXXXXX", "email": "", "rcs_capable": true, "whatsapp": true},
+  {"recipient_id": "live-laptop", "label": "Laptop mailbox", "segment": "dealer", "phone": "", "email": "demo-mailbox@example.com", "rcs_capable": false, "whatsapp": false}
+]

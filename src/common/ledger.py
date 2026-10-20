@@ -290,3 +290,20 @@ def store_reply(tbl, notice_id: str, recipient_id: str, channel: str, text: str,
             "at": at,
         }
     )
+
+
+def claim_start(tbl, notice_id: str) -> bool:
+    """Atomically move a notice from `ready` to `running`. False if it was already started."""
+    try:
+        tbl.update_item(
+            Key={"pk": notice_pk(notice_id), "sk": "meta"},
+            UpdateExpression="SET #s = :running",
+            ConditionExpression="#s = :ready",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":running": "running", ":ready": "ready"},
+        )
+        return True
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            return False
+        raise

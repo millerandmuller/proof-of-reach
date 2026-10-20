@@ -1,0 +1,345 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Proof of Reach. Pursues a mandatory notice over RCS, WhatsApp and email until each person has acknowledged it.
+
+Parameters:
+  RcsAgentId:
+    Type: String
+    Default: ""
+    Description: End User Messaging RCS agent id (rcs-...). Empty until the RCS testing agent exists; live RCS sends then fail with a recorded reason.
+  WhatsAppPhoneNumberId:
+    Type: String
+    Default: ""
+    Description: End User Messaging Social phone number id (phone-number-id-...).
+  WhatsAppTemplateName:
+    Type: String
+    Default: ""
+    Description: Approved template with one quick-reply button. Empty means interactive reply-button messages inside the 24h window.
+  SesSender:
+    Type: String
+    Default: ""
+    Description: Verified SES sender address.
+  WindowSeconds:
+    Type: Number
+    Default: 90
+    Description: Length of one escalation window. 90 for the demo, hours for production.
+  AgentCodeBucket:
+    Type: String
+    Description: S3 bucket holding the notice writer zip (scripts/deploy.sh creates and fills it).
+  AgentCodeKey:
+    Type: String
+    Description: S3 key of the notice writer zip.
+  ModelId:
+    Type: String
+    Default: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: Bedrock inference profile used by the notice writer (read from the account, not assumed).
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    CodeUri: src/
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        LEDGER_TABLE: !Ref LedgerTable
+        RCS_AGENT_ID: !Ref RcsAgentId
+        RCS_CONFIGURATION_SET: por-rcs
+        WHATSAPP_PHONE_NUMBER_ID: !Ref WhatsAppPhoneNumberId
+        WHATSAPP_TEMPLATE_NAME: !Ref WhatsAppTemplateName
+        SES_SENDER: !Ref SesSender
+        SES_CONFIGURATION_SET: por-ses
+        ACK_BASE_URL: !Sub "https://${DashboardDistribution.DomainName}"
+        WINDOW_SECONDS: !Ref WindowSeconds
+        ENGINE_FUNCTION_ARN: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-engine"
+        SCHEDULER_ROLE_ARN: !GetAtt SchedulerRole.Arn
+        AGENT_RUNTIME_ARN: !GetAtt NoticeWriterRuntime.AgentRuntimeArn
+
+Resources:
+  # ---------------------------------------------------------------- ledger (F1)
+  LedgerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - {AttributeName: pk, AttributeType: S}
+        - {AttributeName: sk, AttributeType: S}
+      KeySchema:
+        - {AttributeName: pk, KeyType: HASH}
+        - {AttributeName: sk, KeyType: RANGE}
+
+  # ---------------------------------------------------------------- proof event topics
+  RcsEventsTopic:
+    Type: AWS::SNS::Topic
+  RcsTwoWayTopic:
+    Type: AWS::SNS::Topic
+  WhatsAppTopic:
+    Type: AWS::SNS::Topic
+  SesTopic:
+    Type: AWS::SNS::Topic
+
+  TopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref RcsEventsTopic, !Ref RcsTwoWayTopic, !Ref WhatsAppTopic, !Ref SesTopic]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EndUserMessagingSms
+            Effect: Allow
+            Principal: {Service: sms-voice.amazonaws.com}
+            Action: sns:Publish
+            Resource: [!Ref RcsEventsTopic, !Ref RcsTwoWayTopic]
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+          - Sid: EndUserMessagingSocial
+            Effect: Allow
+            Principal: {Service: social-messaging.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref WhatsAppTopic
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+          - Sid: SesEventPublishing
+            Effect: Allow
+            Principal: {Service: ses.amazonaws.com}
+            Action: sns:Publish
+            Resource: !Ref SesTopic
+            Condition: {StringEquals: {"AWS:SourceAccount": !Ref "AWS::AccountId"}}
+
+  # RCS configuration set: delivery, read, failure and fallback events go to RcsEventsTopic (S-02, S-03).
+  RcsConfigurationSet:
+    Type: AWS::SMSVOICE::ConfigurationSet
+    Properties:
+      ConfigurationSetName: por-rcs
+      MessageFeedbackEnabled: true
+      EventDestinations:
+        - EventDestinationName: por-rcs-events
+          Enabled: true
+          MatchingEventTypes: [RCS_DELIVERED, RCS_READ, RCS_FAILED, RCS_TTL_EXPIRED, RCS_FALLEN_BACK_TO_SMS]
+          SnsDestination: {TopicArn: !Ref RcsEventsTopic}
+
+  # SES configuration set: event publishing enables open and click tracking (S-23).
+  SesConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: por-ses
+  SesEventDestination:
+    Type: AWS::SES::ConfigurationSetEventDestination
+    Properties:
+      ConfigurationSetName: !Ref SesConfigurationSet
+      EventDestination:
+        Name: por-ses-events
+        Enabled: true
+        MatchingEventTypes: [delivery, open, click, bounce, reject, complaint]
+        SnsDestination: {TopicARN: !Ref SesTopic}
+
+  # Role the RCS agent assumes to publish taps to the two-way topic (S-04). Wired by scripts/wire_rcs.py.
+  RcsTwoWayRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: sms-voice.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+      Policies:
+        - PolicyName: publish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - {Effect: Allow, Action: sns:Publish, Resource: !Ref RcsTwoWayTopic}
+
+  # ---------------------------------------------------------------- consumers (F2 to F5)
+  RcsEventsFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: consumers.rcs_events.handler
+      Policies: &consumer_policies
+        - DynamoDBCrudPolicy: {TableName: !Ref LedgerTable}
+        - Statement:
+            - {Effect: Allow, Action: sms-voice:PutMessageFeedback, Resource: "*"}
+      Events:
+        Topic: {Type: SNS, Properties: {Topic: !Ref RcsEventsTopic}}
+  RcsTwoWayFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: consumers.rcs_twoway.handler
+      Policies: *consumer_policies
+      Events:
+        Topic: {Type: SNS, Properties: {Topic: !Ref RcsTwoWayTopic}}
+  WhatsAppFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: consumers.whatsapp_events.handler
+      Policies: *consumer_policies
+      Events:
+        Topic: {Type: SNS, Properties: {Topic: !Ref WhatsAppTopic}}
+  SesFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: consumers.ses_events.handler
+      Policies: *consumer_policies
+      Events:
+        Topic: {Type: SNS, Properties: {Topic: !Ref SesTopic}}
+
+  # ---------------------------------------------------------------- rule engine and senders (F6 to F9)
+  EngineFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-engine"
+      Handler: engine.rule_engine.handler
+      Timeout: 900
+      MemorySize: 1024
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref LedgerTable}
+        - Statement:
+            - {Effect: Allow, Action: sms-voice:SendRcsMessage, Resource: "*"}
+            - {Effect: Allow, Action: social-messaging:SendWhatsAppMessage, Resource: "*"}
+            - {Effect: Allow, Action: [ses:SendEmail, ses:SendRawEmail], Resource: "*"}
+            - {Effect: Allow, Action: scheduler:CreateSchedule, Resource: "*"}
+            - {Effect: Allow, Action: iam:PassRole, Resource: !GetAtt SchedulerRole.Arn}
+
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: scheduler.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+      Policies:
+        - PolicyName: invoke-engine
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-engine"
+
+  # ---------------------------------------------------------------- notice writer on AgentCore Runtime (F14, F15)
+  AgentRuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: bedrock-agentcore.amazonaws.com}
+            Action: sts:AssumeRole
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
+      Policies:
+        - PolicyName: runtime
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:bedrock:*::foundation-model/*"
+                  - !Sub "arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*"
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AgentCodeBucket}/*"
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
+                Resource: "*"
+
+  NoticeWriterRuntime:
+    Type: AWS::BedrockAgentCore::Runtime
+    Properties:
+      AgentRuntimeName: proof_of_reach_writer
+      Description: Writes the notice text per audience and summarizes replies. The ledger and the ladder are code elsewhere.
+      RoleArn: !GetAtt AgentRuntimeRole.Arn
+      NetworkConfiguration: {NetworkMode: PUBLIC}
+      EnvironmentVariables: {MODEL_ID: !Ref ModelId}
+      AgentRuntimeArtifact:
+        CodeConfiguration:
+          Runtime: PYTHON_3_13
+          EntryPoint: [main.py]
+          Code:
+            S3: {Bucket: !Ref AgentCodeBucket, Prefix: !Ref AgentCodeKey}
+
+  # ---------------------------------------------------------------- read API and start (F11, F12)
+  ApiFn:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-api"
+      Handler: api.handler.handler
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref LedgerTable}
+        - Statement:
+            - {Effect: Allow, Action: lambda:InvokeFunction, Resource: !GetAtt EngineFn.Arn}
+            - Effect: Allow
+              Action: bedrock-agentcore:InvokeAgentRuntime
+              Resource:
+                - !GetAtt NoticeWriterRuntime.AgentRuntimeArn
+                - !Sub "${NoticeWriterRuntime.AgentRuntimeArn}/runtime-endpoint/*"
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins: ["*"]
+          AllowMethods: [GET, POST]
+          AllowHeaders: [content-type]
+
+  # ---------------------------------------------------------------- dashboard hosting
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true}
+  DashboardOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+  DashboardDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        Origins:
+          - Id: dashboard
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt DashboardOac.Id
+            S3OriginConfig: {OriginAccessIdentity: ""}
+        DefaultCacheBehavior:
+          TargetOriginId: dashboard
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled: the demo edits the page minutes before filming
+          Compress: true
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: {Service: cloudfront.amazonaws.com}
+            Action: s3:GetObject
+            Resource: !Sub "${DashboardBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}"
+
+Outputs:
+  LedgerTable: {Value: !Ref LedgerTable}
+  ApiUrl: {Value: !GetAtt ApiFnUrl.FunctionUrl}
+  DashboardUrl: {Value: !Sub "https://${DashboardDistribution.DomainName}"}
+  DashboardBucket: {Value: !Ref DashboardBucket}
+  DashboardDistributionId: {Value: !Ref DashboardDistribution}
+  RcsEventsTopicArn: {Value: !Ref RcsEventsTopic}
+  RcsTwoWayTopicArn: {Value: !Ref RcsTwoWayTopic}
+  RcsTwoWayRoleArn: {Value: !GetAtt RcsTwoWayRole.Arn}
+  WhatsAppTopicArn: {Value: !Ref WhatsAppTopic}
+  SesTopicArn: {Value: !Ref SesTopic}
+  EngineFunctionArn: {Value: !GetAtt EngineFn.Arn}
+  AgentRuntimeArn: {Value: !GetAtt NoticeWriterRuntime.AgentRuntimeArn}

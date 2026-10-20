@@ -54,7 +54,7 @@ def _act_on(tbl, meta: Dict[str, Any], stage: int, clients: Dict[str, Any], item
                                   f"send failed: {err}", ledger.now_iso())
             log.warning("send failed for %s on %s: %s", fresh["recipient_id"], channel, err)
             return "failed"
-    if ladder.needs_verdict(fresh, stage) or (stage >= ladder.CLOSE_STAGE and fresh["state"] not in ("acknowledged", "unreachable")):
+    if ladder.needs_verdict(fresh, stage):
         ledger.mark_unreachable(tbl, fresh["notice_id"], fresh["recipient_id"], ladder.unreachable_reason(fresh, stage))
         return "unreachable"
     return "skipped"

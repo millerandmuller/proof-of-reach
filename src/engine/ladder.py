@@ -2,13 +2,14 @@
 
 Stage k (1-based) sends rung k of the recipient's own ladder, the channels they
 have, in the fixed order rcs, whatsapp, email. Stage len(LADDER)+1 is the close:
-everyone not acknowledged is marked unreachable with a reason. An acknowledged
-recipient never receives anything again.
+everyone who never got a delivery is marked unreachable with a reason. Someone
+delivered or read but not acknowledged stays in that tier: they were reached, they
+have not confirmed. An acknowledged recipient never receives anything again.
 """
 from typing import Any, Dict, Optional
 
 from common import config
-from common.tiers import UNREACHABLE
+from common.tiers import UNREACHABLE, rank
 
 CLOSE_STAGE = len(config.LADDER) + 1
 
@@ -34,7 +35,7 @@ def unreachable_reason(item: Dict[str, Any], stage: int) -> str:
 
 
 def needs_verdict(item: Dict[str, Any], stage: int) -> bool:
-    """True when this stage ends the recipient's journey without proof."""
-    if item["state"] in ("acknowledged", UNREACHABLE):
+    """True when this stage ends the recipient's journey and they were never delivered anything."""
+    if item["state"] in ("acknowledged", UNREACHABLE) or rank(item["state"]) >= rank("delivered"):
         return False
     return rung_for(item, stage) is None

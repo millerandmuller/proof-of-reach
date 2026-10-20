@@ -188,4 +188,4 @@ def test_ses_click_on_other_link_is_ignored_and_bounce_records_reason(row):
     out = ses_events.handler(sns(ses("Click", click={"timestamp": "t", "link": "https://example.com/other", "isBotEvent": "Unlikely"})))
     assert out["processed"] == 0
     ses_events.handler(sns(ses("Bounce", bounce={"bounceType": "Permanent", "bounceSubType": "NoEmail", "timestamp": "2026-10-26T12:00:05.000Z"})))
-    assert ledger.get_recipient(row, NOTICE, RID)["last_failure"]["reason"] == "email Permanent/NoEmail"
+    assert ledger.get_recipient(row, NOTICE, RID)["last_failure"]["reason"] == "bounce Permanent/NoEmail"

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof of Reach</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="mark" aria-hidden="true"></span><span class="name">Proof of Reach</span></div>
+  <div class="notice-title" id="notice-title">No notice loaded</div>
+  <div class="top-right">
+    <span class="chip" id="status-chip">connecting</span>
+    <button id="start-btn" class="primary" hidden>Start notice</button>
+  </div>
+</header>
+
+<div class="banner" id="banner" role="status" aria-live="polite" hidden></div>
+
+<main>
+  <section class="hero" aria-label="Reach">
+    <p class="bar-label" id="bar-label">&nbsp;</p>
+    <div class="bar" id="bar" role="img" aria-label="Stacked bar of recipients by proof tier"></div>
+    <ul class="legend" id="legend"></ul>
+    <p class="empty" id="empty" hidden>No notice started. Sent is not proof; start one to see who knows.</p>
+  </section>
+
+  <section class="grid">
+    <div class="panel" aria-label="Per channel">
+      <h2>By channel</h2>
+      <p class="hint">How far each message got on its own channel. Only a tap or a click counts as acknowledged.</p>
+      <div id="channels"></div>
+    </div>
+
+    <div class="panel" aria-label="Live devices">
+      <h2>Live devices</h2>
+      <p class="hint">Every row below is an event from AWS with a message id. Nothing is guessed.</p>
+      <div id="live"></div>
+    </div>
+  </section>
+
+  <section class="panel report" aria-label="Reach report">
+    <div class="report-head">
+      <h2>Reach report</h2>
+      <span class="hint" id="report-hint"></span>
+    </div>
+    <p class="headline" id="rep-headline"></p>
+    <p class="breakdown" id="rep-breakdown"></p>
+    <div class="report-cols">
+      <div>
+        <h3>Who still does not know</h3>
+        <table class="exceptions" id="rep-exceptions"><thead><tr><th>Recipient</th><th>State</th><th>Reason</th></tr></thead><tbody></tbody></table>
+        <p class="more" id="rep-more"></p>
+      </div>
+      <div>
+        <h3>Why they are unreachable</h3>
+        <ul class="reasons" id="rep-reasons"></ul>
+        <h3>What people are asking</h3>
+        <ul class="themes" id="rep-themes"></ul>
+      </div>
+    </div>
+    <p class="last-line" id="rep-last"></p>
+  </section>
+</main>
+
+<footer class="honesty" id="footer" role="contentinfo">
+  <span id="footer-text">&nbsp;</span>
+  <span class="brand-foot">3RD AI</span>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>

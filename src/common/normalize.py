@@ -171,7 +171,7 @@ def normalize_ses(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return env
     if event in ("Bounce", "Reject", "Complaint"):
         detail = msg.get(event.lower(), {})
-        reason = detail.get("bounceType") and f"{detail['bounceType']}/{detail.get('bounceSubType')}" or detail.get("reason") or event
+        reason = detail.get("bounceType") and f"{detail['bounceType']}/{detail.get('bounceSubType')}" or detail.get("reason") or ""
         ts = detail.get("timestamp") or mail.get("timestamp", "")
-        return _envelope("email", event, "failed", mid, ts, msg, failure_reason=f"email {reason}")
+        return _envelope("email", event, "failed", mid, ts, msg, failure_reason=f"{event.lower()} {reason}")
     return None  # Send, DeliveryDelay, Subscription, Rendering Failure
