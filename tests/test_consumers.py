@@ -189,3 +189,33 @@ def test_ses_click_on_other_link_is_ignored_and_bounce_records_reason(row):
     assert out["processed"] == 0
     ses_events.handler(sns(ses("Bounce", bounce={"bounceType": "Permanent", "bounceSubType": "NoEmail", "timestamp": "2026-10-26T12:00:05.000Z"})))
     assert ledger.get_recipient(row, NOTICE, RID)["last_failure"]["reason"] == "bounce Permanent/NoEmail"
+
+
+def _iso_ago(minutes):
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@pytest.mark.parametrize("minutes_ago,expect_call", [(30, True), (59, True), (61, False), (120, False)])
+def test_feedback_window_boundary_is_one_hour(row, monkeypatch, minutes_ago, expect_call):
+    calls = []
+
+    class FakeClient:
+        def put_message_feedback(self, **kw):
+            calls.append(kw)
+
+    monkeypatch.setattr(feedback.boto3, "client", lambda *a, **k: FakeClient())
+    send(row, "rcs", "rcs-1", at=_iso_ago(minutes_ago))
+    rcs_twoway.handler(sns(postback_message()))
+    assert bool(calls) is expect_call
+
+
+def test_whatsapp_acknowledgment_does_not_close_the_rcs_feedback_loop(row, monkeypatch):
+    monkeypatch.setattr(feedback.boto3, "client", lambda *a, **k: pytest.fail("RCS feedback must not fire for a WhatsApp ack"))
+    send(row, "rcs", "rcs-1")
+    send(row, "whatsapp", "wamid.A")
+    reply = {"messages": [{"from": "1", "id": "wamid.B", "timestamp": "1736379060", "type": "interactive", "context": {"id": "wamid.A"},
+                           "interactive": {"type": "button_reply", "button_reply": {"id": PB, "title": "ok"}}}]}
+    whatsapp_events.handler(sns(wa(reply)))
+    item = ledger.get_recipient(row, NOTICE, RID)
+    assert item["state"] == "acknowledged" and item["feedback_sent"] is False
