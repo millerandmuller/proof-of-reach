@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 820" font-family="Inter, system-ui, sans-serif" font-size="15">
+  <title>Proof of Reach architecture</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#17202a"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#14774a"/></marker>
+  </defs>
+  <rect width="1400" height="820" fill="#f6f4ef"/>
+  <text x="30" y="40" font-size="24" font-weight="700" fill="#17202a">Proof of Reach: sent is not proof</text>
+  <text x="30" y="64" fill="#55606b">Every state in the ledger is an AWS event with a message id. The ladder is code. The model only writes text.</text>
+
+  <!-- columns -->
+  <text x="40" y="104" font-weight="700" fill="#55606b">CHANNELS (CDS runtime calls)</text>
+  <text x="400" y="104" font-weight="700" fill="#55606b">PROOF EVENTS</text>
+  <text x="760" y="104" font-weight="700" fill="#55606b">CONSUMERS</text>
+  <text x="1060" y="104" font-weight="700" fill="#55606b">LEDGER AND SURFACE</text>
+
+  <!-- channels -->
+  <g stroke="#17202a" fill="#fff">
+    <rect x="30" y="120" width="300" height="86" rx="8"/>
+    <rect x="30" y="226" width="300" height="86" rx="8"/>
+    <rect x="30" y="332" width="300" height="86" rx="8"/>
+  </g>
+  <text x="46" y="148" font-weight="700">End User Messaging RCS</text>
+  <text x="46" y="170">SendRcsMessage  rich card + Reply</text>
+  <text x="46" y="192" fill="#14774a">PutMessageFeedback  (loop closer)</text>
+  <text x="46" y="254" font-weight="700">End User Messaging Social</text>
+  <text x="46" y="276">SendWhatsAppMessage  reply button</text>
+  <text x="46" y="298" fill="#55606b">WhatsApp Business Account</text>
+  <text x="46" y="360" font-weight="700">Amazon SES v2</text>
+  <text x="46" y="382">SendEmail  + configuration set</text>
+  <text x="46" y="404" fill="#55606b">acknowledgment link = click event</text>
+
+  <!-- topics -->
+  <g stroke="#4a6f94" fill="#eaf0f6">
+    <rect x="400" y="116" width="250" height="40" rx="6"/>
+    <rect x="400" y="166" width="250" height="40" rx="6"/>
+    <rect x="400" y="236" width="250" height="40" rx="6"/>
+    <rect x="400" y="346" width="250" height="40" rx="6"/>
+  </g>
+  <text x="414" y="141">SNS  RCS delivered, read</text>
+  <text x="414" y="191">SNS  two-way: suggestion tap</text>
+  <text x="414" y="261">SNS  WhatsApp statuses</text>
+  <text x="414" y="371">SNS  SES delivery, open, click</text>
+  <text x="400" y="432" fill="#55606b">each topic: SQS buffer + DLQ, batch 10, capped concurrency</text>
+
+  <!-- consumers -->
+  <g stroke="#17202a" fill="#fff">
+    <rect x="760" y="116" width="240" height="40" rx="6"/>
+    <rect x="760" y="166" width="240" height="40" rx="6"/>
+    <rect x="760" y="236" width="240" height="40" rx="6"/>
+    <rect x="760" y="346" width="240" height="40" rx="6"/>
+  </g>
+  <text x="774" y="141">Lambda  rcs_events</text>
+  <text x="774" y="191">Lambda  rcs_twoway</text>
+  <text x="774" y="261">Lambda  whatsapp_events</text>
+  <text x="774" y="371">Lambda  ses_events</text>
+
+  <!-- ledger -->
+  <rect x="1060" y="200" width="310" height="150" rx="10" fill="#fff" stroke="#14774a" stroke-width="3"/>
+  <text x="1078" y="232" font-weight="700" font-size="18">DynamoDB ledger</text>
+  <text x="1078" y="258">one row per recipient</text>
+  <text x="1078" y="280">tiers: sent, delivered, read,</text>
+  <text x="1078" y="302">acknowledged; never regress</text>
+  <text x="1078" y="324">raw event kept verbatim</text>
+
+  <!-- engine row -->
+  <g stroke="#17202a" fill="#fff">
+    <rect x="400" y="520" width="250" height="70" rx="8"/>
+    <rect x="760" y="520" width="240" height="70" rx="8"/>
+    <rect x="30" y="520" width="300" height="70" rx="8"/>
+  </g>
+  <text x="414" y="548" font-weight="700">EventBridge Scheduler</text>
+  <text x="414" y="570">one-time schedule per window</text>
+  <text x="774" y="548" font-weight="700">Lambda  rule engine</text>
+  <text x="774" y="570">rcs, then whatsapp, then email</text>
+  <text x="44" y="548" font-weight="700">AgentCore Runtime</text>
+  <text x="44" y="570">notice writer, reply summarizer</text>
+
+  <!-- dashboard -->
+  <g stroke="#17202a" fill="#fff">
+    <rect x="1060" y="520" width="310" height="70" rx="8"/>
+    <rect x="1060" y="640" width="310" height="70" rx="8"/>
+  </g>
+  <text x="1076" y="548" font-weight="700">Lambda URL  read API + start</text>
+  <text x="1076" y="570">state, report, one-shot start</text>
+  <text x="1076" y="668" font-weight="700">S3 + CloudFront  dashboard</text>
+  <text x="1076" y="690">reach bar, exception list, raw events</text>
+
+  <!-- arrows: channels to topics -->
+  <g stroke="#17202a" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <path d="M330 150 L400 136"/><path d="M330 175 L400 186"/><path d="M330 270 L400 256"/><path d="M330 375 L400 366"/>
+    <path d="M650 136 L760 136"/><path d="M650 186 L760 186"/><path d="M650 256 L760 256"/><path d="M650 366 L760 366"/>
+    <path d="M1000 136 L1060 230"/><path d="M1000 186 L1060 250"/><path d="M1000 256 L1060 280"/><path d="M1000 366 L1060 320"/>
+    <path d="M650 555 L760 555"/>
+    <path d="M1215 520 L1215 350"/>
+    <path d="M1215 640 L1215 590"/>
+  </g>
+  <!-- engine reads ledger, sends -->
+  <g stroke="#17202a" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <path d="M880 520 C 880 450, 1060 400, 1090 350"/>
+    <path d="M760 545 C 560 470, 300 470, 200 418" stroke-dasharray="5 4"/>
+    <path d="M760 565 C 600 620, 300 620, 200 590" stroke-dasharray="5 4"/>
+  </g>
+  <text x="330" y="500" fill="#55606b">engine sends the next rung to everyone not acknowledged</text>
+  <text x="300" y="640" fill="#55606b">engine and start call the writer for text</text>
+  <!-- feedback loop -->
+  <path d="M1000 186 L1030 186 L1030 88 L130 88 L130 118" stroke="#14774a" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#g)"/>
+  <text x="400" y="80" fill="#14774a">PutMessageFeedback RECEIVED after a tap (never shown as proof)</text>
+
+  <rect x="30" y="740" width="1340" height="56" rx="8" fill="#17202a"/>
+  <text x="50" y="774" fill="#f6f4ef">Demo footer: 3 live devices, the rest replayed through these same topics and consumers. Replayed events are labelled simulated until captured from the live pipeline.</text>
+</svg>
