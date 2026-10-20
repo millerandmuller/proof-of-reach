@@ -1,0 +1,3 @@
+boto3==1.43.116
+moto[dynamodb,sns,sqs,s3,ses]==5.2.4
+pytest==9.1.1

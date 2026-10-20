@@ -1,0 +1,35 @@
+"""F7: RCS stage. SendRcsMessage rich card with one Reply suggestion and one OpenUrl (S-01, S-06, S-12)."""
+from typing import Any, Dict
+
+from common import config
+
+
+def build_content(texts: Dict[str, str], postback: str, notice_url: str) -> Dict[str, Any]:
+    """Rich card: title, description, a Reply whose PostbackData is the acknowledgment, an OpenUrl to the notice."""
+    suggestions = [{"Reply": {"Text": texts["ack_label"][:25], "PostbackData": postback}}]
+    if notice_url:
+        suggestions.append({"OpenUrl": {"Text": "Read the notice", "PostbackData": f"{postback}:url", "Url": notice_url}})
+    return {
+        "Content": {
+            "RichCard": {
+                "CardOrientation": "VERTICAL",
+                "CardContent": {
+                    "Title": texts["title"][:200],
+                    "Description": texts["body"][:2000],
+                    "Suggestions": suggestions,
+                },
+            }
+        }
+    }
+
+
+def send(client, phone: str, texts: Dict[str, str], postback: str, notice_url: str = "") -> str:
+    """Returns the provider message id. MessageFeedbackEnabled lets F10 close the loop later."""
+    resp = client.send_rcs_message(  # CDS call: End User Messaging RCS (F7)
+        DestinationPhoneNumber=phone,
+        OriginationIdentity=config.RCS_AGENT_ID,
+        ConfigurationSetName=config.RCS_CONFIGURATION_SET,
+        MessageFeedbackEnabled=True,
+        RcsMessageContent=build_content(texts, postback, notice_url),
+    )
+    return resp["MessageId"]
