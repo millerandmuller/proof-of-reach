@@ -1,4 +1,4 @@
-"""Aggregations for the reach bar (F11) and the reach report (F12). Pure functions over ledger items.
+"""Aggregations for the reach bar and the reach report. Pure functions over ledger items.
 
 Every number is computed from recipient items only; nothing is estimated.
 Tiers are exclusive buckets that always add up to N, so the bar and the report cannot disagree.
@@ -50,8 +50,12 @@ def channel_breakdown(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
     return out
 
 
-def percent(part: int, whole: int) -> int:
-    return round(100 * part / whole) if whole else 0
+def percent(part: int, whole: int):
+    """Whole percent. A non-zero share that rounds to 0 reads '<1', so one acknowledgment is never shown as none."""
+    if not whole:
+        return 0
+    value = round(100 * part / whole)
+    return "<1" if part and value == 0 else value
 
 
 def bar_label(counts: Dict[str, int], total: int) -> str:
@@ -102,7 +106,7 @@ def exception_rows(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "segment": item.get("segment"),
             "state": bucket(item),
             "reason": item.get("unreachable_reason") or WAITING_REASON[bucket(item)],
-            "event_ids": [h["event_id"] for h in history if h.get("event_id")][-3:],
+            "event_ids": item.get("recent_event_ids") or [h["event_id"] for h in history if h.get("event_id")][-3:],
         })
     order = {"unreachable": 0, "read": 1, "delivered": 2, "sent": 3, "not_started": 4}
     rows.sort(key=lambda r: (order.get(r["state"], 9), r["recipient_id"]))

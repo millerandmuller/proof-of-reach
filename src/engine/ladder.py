@@ -1,4 +1,4 @@
-"""Pure ladder rules (F6): which rung a recipient gets at which stage. No I/O.
+"""Pure ladder rules: which rung a recipient gets at which stage. No I/O.
 
 Stage k (1-based) sends rung k of the recipient's own ladder, the channels they
 have, in the fixed order rcs, whatsapp, email. Stage len(LADDER)+1 is the close:

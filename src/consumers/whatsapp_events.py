@@ -1,4 +1,4 @@
-"""F4: WhatsApp event destination (SNS -> SQS) -> ledger. Statuses, button replies, free text."""
+"""WhatsApp event destination (SNS -> SQS) -> ledger. Statuses, button replies, free text."""
 from common import normalize, pipeline
 from consumers import batch
 

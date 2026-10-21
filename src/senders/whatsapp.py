@@ -1,4 +1,4 @@
-"""F8: WhatsApp stage. SendWhatsAppMessage passes a Meta Cloud API message object through (S-18).
+"""WhatsApp stage. SendWhatsAppMessage passes a Meta Cloud API message object through.
 
 Inside an open 24h customer window we send an interactive reply-button message.
 Outside it Meta only accepts an approved template; set WHATSAPP_TEMPLATE_NAME to
@@ -41,7 +41,7 @@ def build_message(phone: str, texts: Dict[str, str], postback: str) -> Dict[str,
 
 
 def send(client, phone: str, texts: Dict[str, str], postback: str) -> str:
-    resp = client.send_whatsapp_message(  # CDS call: End User Messaging Social (F8)
+    resp = client.send_whatsapp_message(  # CDS call: End User Messaging Social
         originationPhoneNumberId=config.WHATSAPP_PHONE_NUMBER_ID,
         message=json.dumps(build_message(phone, texts, postback)).encode(),
         metaApiVersion=META_API_VERSION,

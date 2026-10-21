@@ -28,9 +28,12 @@ def start(tbl, notice_id: str, writer: Callable = agent_client.write_notice,
         return {"ok": False, "error": "unknown notice", "status": 404}
     if not ledger.claim_start(tbl, notice_id):
         return {"ok": False, "error": "notice already started", "status": 409}
-    texts, sources, error = writer(meta["brief"])
-    started = {**meta, "status": "running", "texts": texts, "text_sources": sources, "text_error": error,
-               "started_at": ledger.now_iso()}
-    ledger.put_meta(tbl, notice_id, started)
-    invoke_engine(notice_id, 1)
+    try:
+        texts, sources, error = writer(meta["brief"])
+        ledger.update_meta(tbl, notice_id, {"texts": texts, "text_sources": sources, "text_error": error,
+                                            "started_at": ledger.now_iso()})
+        invoke_engine(notice_id, 1)
+    except Exception:
+        ledger.release_start(tbl, notice_id)  # a failed start must not strand the notice in `running`
+        raise
     return {"ok": True, "status": 202, "notice_id": notice_id, "text_sources": sources, "text_error": error}

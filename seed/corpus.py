@@ -1,14 +1,14 @@
-"""Deterministic demo population and replay corpus (F13). Pure: no AWS, no clock reads.
+"""Deterministic demo population and replay corpus. Pure: no AWS, no clock reads.
 
 Each replayed recipient gets a planned outcome. The corpus holds provider events in
-the same payload shapes the real services publish (S-03, S-04, S-16, S-23), so the
+the same payload shapes the real services publish, so the
 real consumers process them. Provenance is "simulated" until payload templates are
 captured from the live pipeline; the dashboard footer reads that provenance and
 never calls simulated events "recorded".
 """
 import json
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 from common.tiers import build_postback
@@ -19,6 +19,12 @@ SHARES = (("acknowledged", 0.8215), ("read", 0.106), ("delivered", 0.049), ("unr
 ACK_RUNG_WEIGHTS = (0.62, 0.24, 0.14)  # share of acknowledgments that happen on rung 1, 2, 3
 CAP_RATES = {"rcs": 0.60, "whatsapp": 0.70, "email": 0.95}
 LADDER = ("rcs", "whatsapp", "email")
+# Three free-text replies for the reply summarizer (shown as "what people are asking").
+REPLIES = (
+    "Where do I send it back for a refund?",
+    "Is the refund automatic or do I have to apply?",
+    "My neighbour has the same heater, can you tell her too?",
+)
 
 
 def build_recipients(n: int, live: List[Dict[str, Any]], seed: int = 20261026) -> List[Dict[str, Any]]:
@@ -160,8 +166,22 @@ def build_corpus(notice_id: str, replayed: List[Dict[str, Any]], plan: Dict[str,
             at0 = base + timedelta(seconds=(rung - 1) * window)
             for frac, topic, message in _events_for_rung(r["recipient_id"], notice_id, channel, steps, at0, window, rng):
                 events.append({"stage": rung, "frac": round(frac, 4), "topic": topic, "message": message})
+    events.extend(_reply_events(replayed, plan, base, window))
     events.sort(key=lambda e: (e["stage"], e["frac"]))
     return events
+
+
+def _reply_events(replayed, plan, base, window):
+    """The first recipients who acknowledge on the RCS rung also send a free-text reply."""
+    out = []
+    candidates = [r for r in replayed if plan[r["recipient_id"]]["outcome"] == "acknowledged"
+                  and plan[r["recipient_id"]]["rung"] == 1 and caps_of(r)[:1] == ["rcs"]]
+    for r, text in zip(candidates, REPLIES):
+        rid = r["recipient_id"]
+        message = {"originationNumber": "15550000000", "destinationNumber": "replay_agent", "messageBody": text,
+                   "inboundMessageId": f"replay-in-reply-{rid}", "previousPublishedMessageId": f"replay-rcs-{rid}"}
+        out.append({"stage": 1, "frac": 0.5, "topic": "rcs_twoway", "message": message})
+    return out
 
 
 def expected_counts(plan: Dict[str, Dict[str, Any]]) -> Dict[str, int]:

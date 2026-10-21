@@ -4,11 +4,12 @@ Routes: GET /state, GET /report, POST /start. No login (the dashboard is the
 monitoring UI of the automation); contact data never leaves the table.
 """
 import json
+import logging
 import os
 from typing import Any, Dict, List
 
 from agent import client as agent_client
-from api import report
+from api import redact, report
 from common import ledger
 from engine import start_notice
 
@@ -16,6 +17,9 @@ DEFAULT_NOTICE = os.environ.get("DEFAULT_NOTICE_ID", "HX200-2026-10")
 LIVE_EVENTS = 6
 STATE_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg"
 STATE_NAMES = {"#s": "state", "#seg": "segment"}  # both are DynamoDB reserved words
+REPORT_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg, unreachable_reason, recent_event_ids"
+START_TOKEN = os.environ.get("START_TOKEN", "")
+EXCEPTION_ROWS = 50  # the report lists the first rows; the full list stays in the ledger
 
 
 def _json(status: int, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -39,7 +43,7 @@ def _live_rows(tbl, notice_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]
         history = []
         for h in item.get("tier_history", [])[-LIVE_EVENTS:]:
             ev = tbl.get_item(Key={"pk": ledger.notice_pk(notice_id), "sk": f"event#{h['event_id']}"}).get("Item") if h.get("event_id") else None
-            history.append({**h, "raw": json.loads(ev["raw_json"]) if ev else None})
+            history.append({**h, "raw": redact.public_raw(json.loads(ev["raw_json"])) if ev else None})
         rows.append({"recipient_id": rid, "label": meta.get("live_labels", {}).get(rid, rid), "state": item["state"],
                      "by_channel": item.get("by_channel", {}), "unreachable_reason": item.get("unreachable_reason"),
                      "history": history})
@@ -64,19 +68,33 @@ def get_report(tbl, notice_id: str, summarize=agent_client.summarize_replies) ->
     meta = ledger.get_meta(tbl, notice_id)
     if meta is None:
         return {"status": "no_notice"}
-    items = ledger.query_prefix(tbl, notice_id, "recipient#")
+    items = ledger.query_prefix(tbl, notice_id, "recipient#", REPORT_PROJECTION, STATE_NAMES)  # no history, no contact data
     for it in items:
-        it.pop("phone", None), it.pop("email", None)
+        it["state"] = it.pop("state", "none")
     replies = [r["text"] for r in ledger.query_prefix(tbl, notice_id, "reply#")]
     themes = meta.get("reply_themes", [])
     if replies and meta.get("reply_count") != len(replies):
         result = summarize(replies)
         themes = result["themes"]
-        ledger.put_meta(tbl, notice_id, {**meta, "reply_themes": themes, "reply_count": len(replies)})
-    unmatched = len(ledger.query_prefix(tbl, notice_id, "unmatched#", "sk"))
+        if result["error"] is None:  # a failed summary is retried on the next poll, never cached as final
+            ledger.update_meta(tbl, notice_id, {"reply_themes": themes, "reply_count": len(replies)})
+    unmatched = sum(len(ledger.query_prefix(tbl, n, "unmatched#", "sk")) for n in {notice_id, "unknown"})
     out = report.build_report(items, meta, themes, unmatched)
+    out["exception_total"] = len(out["exceptions"])
+    out["exceptions"] = out["exceptions"][:EXCEPTION_ROWS]
     out["reply_count"] = len(replies)
     return out
+
+
+def _start(tbl, notice_id: str, headers: Dict[str, str]) -> Dict[str, Any]:
+    if START_TOKEN and headers.get("x-start-token") != START_TOKEN:
+        return _json(403, {"error": "start token required"})
+    try:
+        result = start_notice.start(tbl, notice_id)
+    except Exception:  # noqa: BLE001 - the claim is released by start(); tell the officer to press Start again
+        logging.getLogger(__name__).exception("start failed")
+        return _json(500, {"error": "start failed; press Start notice again"})
+    return _json(result.pop("status"), result)
 
 
 def handler(event, _context=None):
@@ -90,6 +108,5 @@ def handler(event, _context=None):
     if method == "GET" and path == "/report":
         return _json(200, get_report(tbl, notice_id))
     if method == "POST" and path == "/start":
-        result = start_notice.start(tbl, notice_id)
-        return _json(result.pop("status"), result)
+        return _start(tbl, notice_id, {k.lower(): v for k, v in (event.get("headers") or {}).items()})
     return _json(404, {"error": "not found"})

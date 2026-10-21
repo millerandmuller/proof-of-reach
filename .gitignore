@@ -7,6 +7,7 @@ samconfig.toml
 node_modules/
 .DS_Store
 .env
+seed/live_devices.json
 .env.*
 dist/
 .build/

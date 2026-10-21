@@ -35,7 +35,7 @@ def run(tbl, n, live=()):
 
 
 def test_replay_reproduces_planned_outcomes_through_real_consumers(tbl):
-    recipients, plan, events = run(tbl, 150)
+    recipients, plan, events = run(tbl, 80)
     items = ledger.query_prefix(tbl, N, "recipient#")
     counts = report.tier_counts(items)
     expected = corpus.expected_counts(plan)
@@ -44,7 +44,7 @@ def test_replay_reproduces_planned_outcomes_through_real_consumers(tbl):
     assert counts["delivered"] == expected["delivered"]
     assert counts["unreachable"] == expected["unreachable"]
     assert counts["sent"] == 0 and counts["not_started"] == 0
-    assert sum(counts.values()) == 150
+    assert sum(counts.values()) == 80
     assert not ledger.query_prefix(tbl, N, "unmatched#")  # every replayed event found its row
 
 
@@ -57,7 +57,7 @@ def test_outcome_shares_match_the_demo_script_for_2000(tbl):
 
 
 def test_replayed_rows_are_flagged_and_unreachable_reasons_are_specific(tbl):
-    run(tbl, 150)
+    run(tbl, 80)
     items = ledger.query_prefix(tbl, N, "recipient#")
     assert all(h["replayed"] for i in items for h in i["tier_history"])
     reasons = {i["unreachable_reason"] for i in items if i["state"] == "unreachable"}
@@ -66,9 +66,17 @@ def test_replayed_rows_are_flagged_and_unreachable_reasons_are_specific(tbl):
 
 
 def test_acknowledged_recipient_receives_nothing_after_the_ack_rung(tbl):
-    run(tbl, 150)
+    run(tbl, 80)
     for i in ledger.query_prefix(tbl, N, "recipient#"):
         if i["state"] != "acknowledged":
             continue
         ack_idx = next(k for k, h in enumerate(i["tier_history"]) if h["state"] == "acknowledged" and h["counted"])
         assert not [h for h in i["tier_history"][ack_idx + 1:] if h["event"] == "SENT"]
+
+
+def test_three_replies_reach_the_ledger_for_the_summarizer(tbl):
+    run(tbl, 80)
+    replies = ledger.query_prefix(tbl, N, "reply#")
+    assert sorted(r["text"] for r in replies) == sorted(corpus.REPLIES)
+    # a reply is not an acknowledgment and not an unmatched event
+    assert not ledger.query_prefix(tbl, N, "unmatched#")

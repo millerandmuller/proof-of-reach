@@ -1,4 +1,4 @@
-"""F7: RCS stage. SendRcsMessage rich card with one Reply suggestion and one OpenUrl (S-01, S-06, S-12)."""
+"""RCS stage. SendRcsMessage rich card with one Reply suggestion and one OpenUrl."""
 from typing import Any, Dict
 
 from common import config
@@ -24,8 +24,8 @@ def build_content(texts: Dict[str, str], postback: str, notice_url: str) -> Dict
 
 
 def send(client, phone: str, texts: Dict[str, str], postback: str, notice_url: str = "") -> str:
-    """Returns the provider message id. MessageFeedbackEnabled lets F10 close the loop later."""
-    resp = client.send_rcs_message(  # CDS call: End User Messaging RCS (F7)
+    """Returns the provider message id. MessageFeedbackEnabled lets the loop closer report the tap later."""
+    resp = client.send_rcs_message(  # CDS call: End User Messaging RCS
         DestinationPhoneNumber=phone,
         OriginationIdentity=config.RCS_AGENT_ID,
         ConfigurationSetName=config.RCS_CONFIGURATION_SET,

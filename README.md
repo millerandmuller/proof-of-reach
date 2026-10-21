@@ -75,8 +75,18 @@ phones and mailbox before seeding. Without that file every recipient is replayed
 | WhatsApp number | End User Messaging Social, embedded signup with a fresh number | `WHATSAPP_PHONE_NUMBER_ID=... scripts/deploy.sh`, then `python scripts/wire_channels.py --waba <id>` |
 | SES sender and demo mailbox | verify both addresses (SES sandbox) | `SES_SENDER=... scripts/deploy.sh` |
 
+`scripts/deploy.sh` keeps the identity values the stack already has when you do not set the variable, so adding the WhatsApp id later never blanks the RCS id. Set a variable to `-` to clear it on purpose.
+
 Until an identity exists, the matching live send fails with a recorded reason (visible in the
 exception list) and the ladder continues; it never crashes the notice.
+
+## Public surface
+
+The dashboard and its read API need no login (the dashboard is the monitoring view of the automation).
+`POST /start` requires the `x-start-token` header and the API's CORS allows only the dashboard origin.
+The token is not a secret (the dashboard config carries it); it stops cross-site and drive-by starts.
+A notice can be started once; `python seed/seed.py --reset` re-arms it. The API never returns phone
+numbers or mailboxes: raw provider events are filtered through an allowlist (`src/api/redact.py`).
 
 ## What is live and what is replayed
 

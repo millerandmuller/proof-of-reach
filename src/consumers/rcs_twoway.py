@@ -1,4 +1,4 @@
-"""F3: RCS two-way topic (SNS -> SQS) -> ledger. A suggestion tap is the acknowledgment; free text is a reply."""
+"""RCS two-way topic (SNS -> SQS) -> ledger. A suggestion tap is the acknowledgment; free text is a reply."""
 from common import normalize, pipeline
 from consumers import batch
 

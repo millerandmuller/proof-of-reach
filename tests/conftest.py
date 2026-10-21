@@ -25,3 +25,13 @@ def tbl():
             BillingMode="PAY_PER_REQUEST",
         )
         yield ddb.Table("test-ledger")
+
+
+@pytest.fixture(autouse=True)
+def single_thread_pools(monkeypatch):
+    """moto's transact_write_items is not thread-safe (it copies the table while another thread writes).
+    Real DynamoDB is. Production uses thread pools; tests run them with one worker."""
+    from consumers import batch
+    from engine import rule_engine
+    monkeypatch.setattr(rule_engine, "MAX_WORKERS", 1)
+    monkeypatch.setattr(batch, "THREADS", 1)

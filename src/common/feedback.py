@@ -1,7 +1,7 @@
-"""F10 loop closer: PutMessageFeedback RECEIVED on the RCS message id after a tap.
+"""Loop closer: PutMessageFeedback RECEIVED on the RCS message id after a tap.
 
 This tells End User Messaging "my user got it" so the sponsor's feedback metrics
-move. It is never evidence and never changes the ledger (S-11 to S-13).
+move. It is never evidence and never changes the ledger.
 Only the RCS channel is closed this way: an acknowledgment on WhatsApp or email
 says nothing about the RCS message.
 """
@@ -14,7 +14,7 @@ import boto3
 from common import config, ledger
 
 log = logging.getLogger(__name__)
-WINDOW = timedelta(hours=1)  # S-13: records unanswered after one hour become FAILED
+WINDOW = timedelta(hours=1)  # End User Messaging fails feedback records left unanswered after one hour
 
 
 def _parse(ts: str) -> Optional[datetime]:

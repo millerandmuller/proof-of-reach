@@ -1,4 +1,4 @@
-"""F5: SES event publishing (SNS -> SQS) -> ledger. A click on the acknowledgment link is the acknowledgment."""
+"""SES event publishing (SNS -> SQS) -> ledger. A click on the acknowledgment link is the acknowledgment."""
 from common import normalize, pipeline
 from consumers import batch
 

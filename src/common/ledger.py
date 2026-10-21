@@ -1,4 +1,4 @@
-"""DynamoDB ledger: one item per recipient per notice (F1).
+"""DynamoDB ledger: one item per recipient per notice.
 
 Keys (single table):
   recipient item  pk=notice#<id>   sk=recipient#<id>
@@ -14,6 +14,7 @@ Rules enforced here, not in the consumers:
 """
 import hashlib
 import json
+import random
 import time
 from typing import Any, Dict, List, Optional
 
@@ -23,7 +24,7 @@ from botocore.exceptions import ClientError
 from common import config
 from common.tiers import UNREACHABLE, next_state, rank
 
-MAX_LOCK_RETRIES = 8
+MAX_LOCK_RETRIES = 16
 
 
 def table(resource=None):
@@ -103,10 +104,21 @@ def lookup_message(tbl, provider_message_id: str) -> Optional[Dict[str, Any]]:
     return resp.get("Item")
 
 
+def _backoff(attempt: int) -> None:
+    """Jittered exponential backoff so contending writers spread out instead of colliding again."""
+    time.sleep(random.uniform(0, min(0.01 * (2 ** attempt), 0.25)))
+
+
+def _cancel_codes(err: ClientError) -> List[str]:
+    return [r.get("Code", "") for r in err.response.get("CancellationReasons", [])]
+
+
 def record_event(tbl, envelope: Dict[str, Any]) -> Dict[str, Any]:
     """Apply one normalized event to the ledger.
 
-    Returns {"status": "applied" | "no_change" | "duplicate" | "unmatched", ...}.
+    The event row and the recipient update are one transaction, so a failure can never leave
+    an event recorded without its effect (a redelivery would then be called a duplicate and
+    the acknowledgment lost). Returns {"status": "applied" | "no_change" | "duplicate" | "unmatched", ...}.
     Raises ValueError for an acknowledgment that cannot be defended.
     """
     notice_id = envelope.get("notice_id")
@@ -133,24 +145,25 @@ def record_event(tbl, envelope: Dict[str, Any]) -> Dict[str, Any]:
         "replayed": bool(envelope.get("replayed", False)),
         "raw_json": json.dumps(envelope.get("raw"), sort_keys=True, default=str),
     }
-    try:
-        tbl.put_item(Item=event_item, ConditionExpression="attribute_not_exists(pk)")
-    except ClientError as err:
-        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return {"status": "duplicate", "event_id": eid}
-        raise
-
-    for _ in range(MAX_LOCK_RETRIES):
+    for attempt in range(MAX_LOCK_RETRIES):
         item = get_recipient(tbl, notice_id, recipient_id)
         if item is None:
             return _store_unmatched(tbl, envelope, eid, notice_id)
         updated, counted = _apply(item, envelope, eid)
         try:
-            tbl.put_item(Item=updated, ConditionExpression="version = :v", ExpressionAttributeValues={":v": item["version"]})
+            tbl.meta.client.transact_write_items(TransactItems=[
+                {"Put": {"TableName": tbl.name, "Item": event_item, "ConditionExpression": "attribute_not_exists(pk)"}},
+                {"Put": {"TableName": tbl.name, "Item": updated, "ConditionExpression": "version = :v",
+                         "ExpressionAttributeValues": {":v": item["version"]}}},
+            ])
         except ClientError as err:
-            if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
-                continue
-            raise
+            if err.response["Error"]["Code"] != "TransactionCanceledException":
+                raise
+            codes = _cancel_codes(err)
+            if codes and codes[0] == "ConditionalCheckFailed":
+                return {"status": "duplicate", "event_id": eid}  # the event row exists, and so does its effect
+            _backoff(attempt)  # the recipient changed under us: re-read and re-apply
+            continue
         status = "applied" if counted and updated["state"] != item["state"] else "no_change"
         return {"status": status, "event_id": eid, "state": updated["state"], "previous_state": item["state"]}
     raise RuntimeError(f"ledger write contention on {notice_id}/{recipient_id}")
@@ -182,6 +195,9 @@ def _apply(item: Dict[str, Any], envelope: Dict[str, Any], eid: str):
     updated["by_channel"] = by_channel
     if new_state != UNREACHABLE:
         updated["unreachable_reason"] = None
+    if envelope.get("stage"):
+        updated["stage"] = max(int(item.get("stage", 0)), int(envelope["stage"]))
+    updated["recent_event_ids"] = [h["event_id"] for h in updated["tier_history"] if h.get("event_id")][-3:]  # lets the report skip the full history
     updated["version"] = item["version"] + 1
     return updated, counted
 
@@ -191,7 +207,7 @@ def _update_recipient(tbl, notice_id: str, recipient_id: str, change) -> bool:
 
     One helper for every non-event update so the retry rule lives in one place.
     """
-    for _ in range(MAX_LOCK_RETRIES):
+    for attempt in range(MAX_LOCK_RETRIES):
         item = get_recipient(tbl, notice_id, recipient_id)
         if item is None:
             return False
@@ -205,6 +221,7 @@ def _update_recipient(tbl, notice_id: str, recipient_id: str, change) -> bool:
         except ClientError as err:
             if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
                 raise
+            _backoff(attempt)
     raise RuntimeError(f"ledger write contention on {notice_id}/{recipient_id}")
 
 
@@ -214,18 +231,14 @@ def record_failure(tbl, notice_id: str, recipient_id: str, channel: str, event: 
     _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "last_failure": failure})
 
 
-def set_stage(tbl, notice_id: str, recipient_id: str, stage: int) -> None:
-    _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "stage": stage})
-
-
 def mark_feedback_sent(tbl, notice_id: str, recipient_id: str) -> None:
     _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "feedback_sent": True})
 
 
 def mark_unreachable(tbl, notice_id: str, recipient_id: str, reason: str) -> bool:
-    """Set the engine verdict. Never overrides an acknowledgment. Returns True if set."""
+    """Set the engine verdict. Never overrides a delivery, read or acknowledgment. Returns True if set."""
     def change(item):
-        if item["state"] == "acknowledged":
+        if rank(item["state"]) >= rank("delivered"):  # re-checked on the fresh row: a delivery may have landed since the engine looked
             return None
         return {**item, "state": UNREACHABLE, "unreachable_reason": reason}
 
@@ -279,7 +292,7 @@ def now_iso() -> str:
 
 
 def store_reply(tbl, notice_id: str, recipient_id: str, channel: str, text: str, eid: str, at: str) -> None:
-    """Free-text reply, kept for the reply summarizer (F15). Never touches the tier."""
+    """Free-text reply, kept for the reply summarizer. Never touches the tier."""
     tbl.put_item(
         Item={
             "pk": notice_pk(notice_id),
@@ -307,3 +320,18 @@ def claim_start(tbl, notice_id: str) -> bool:
         if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
             return False
         raise
+
+
+def update_meta(tbl, notice_id: str, fields: Dict[str, Any]) -> None:
+    """Set only the given meta fields. Whole-item puts of a stale copy used to overwrite the engine's
+    `closed` status when the report wrote its reply summary at the same moment."""
+    names = {f"#f{i}": k for i, k in enumerate(fields)}
+    values = {f":v{i}": v for i, v in enumerate(fields.values())}
+    expr = "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(fields)))
+    tbl.update_item(Key={"pk": notice_pk(notice_id), "sk": "meta"}, UpdateExpression=expr,
+                    ExpressionAttributeNames=names, ExpressionAttributeValues=values)
+
+
+def release_start(tbl, notice_id: str) -> None:
+    """Undo claim_start after a failed start so the officer can press Start again."""
+    update_meta(tbl, notice_id, {"status": "ready"})

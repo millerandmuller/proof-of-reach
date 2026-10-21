@@ -1,8 +1,5 @@
 """Sender payloads are validated against the SDK's own request models via botocore's Stubber."""
-import json
-
 import boto3
-import pytest
 from botocore.stub import Stubber
 
 from common import config, ledger

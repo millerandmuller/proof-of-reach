@@ -1,4 +1,4 @@
-"""Seed (or reset) the demo notice: 2,000 recipients, three of them live devices (F13).
+"""Seed (or reset) the demo notice: 2,000 recipients, three of them live devices.
 
     python seed/seed.py --stack proof-of-reach            # create
     python seed/seed.py --stack proof-of-reach --reset    # wipe the notice, then create again

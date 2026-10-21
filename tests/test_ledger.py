@@ -112,3 +112,58 @@ def test_raw_event_stored_verbatim(tbl):
     ledger.record_event(tbl, env("read", "RCS_READ"))
     rows = ledger.query_prefix(tbl, NOTICE, "event#")
     assert '"eventType": "RCS_READ"' in rows[0]["raw_json"]
+
+
+def test_failed_write_leaves_no_orphan_event_and_redelivery_applies_the_ack(tbl):
+    """Regression: the event row used to be written before the recipient update, so a failure
+    in between turned the redelivered acknowledgment into a 'duplicate' and lost it for good."""
+    from botocore.exceptions import ClientError
+
+    ledger.put_recipient(tbl, NOTICE, recipient())
+    client = tbl.meta.client
+    real = client.transact_write_items
+    calls = {"n": 0}
+
+    def flaky(**kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ClientError({"Error": {"Code": "ProvisionedThroughputExceededException", "Message": "slow down"}}, "TransactWriteItems")
+        return real(**kw)
+
+    client.transact_write_items = flaky
+    try:
+        ack = env("acknowledged", "SUGGESTION_POSTBACK", mid="in-1")
+        with pytest.raises(ClientError):
+            ledger.record_event(tbl, ack)
+        assert ledger.get_recipient(tbl, NOTICE, "r-1")["state"] == "none"
+        assert ledger.query_prefix(tbl, NOTICE, "event#") == []  # no orphan event row
+        assert ledger.record_event(tbl, ack)["status"] == "applied"  # the redelivery is not a duplicate
+    finally:
+        client.transact_write_items = real
+    assert ledger.get_recipient(tbl, NOTICE, "r-1")["state"] == "acknowledged"
+
+
+def test_contention_exhaustion_raises_and_is_retriable(tbl, monkeypatch):
+    ledger.put_recipient(tbl, NOTICE, recipient())
+    monkeypatch.setattr(ledger, "_backoff", lambda attempt: None)
+    from botocore.exceptions import ClientError
+    client = tbl.meta.client
+    real = client.transact_write_items
+
+    def always_conflict(**kw):
+        raise ClientError({"Error": {"Code": "TransactionCanceledException", "Message": "x"},
+                           "CancellationReasons": [{"Code": "None"}, {"Code": "ConditionalCheckFailed"}]}, "TransactWriteItems")
+
+    client.transact_write_items = always_conflict
+    try:
+        with pytest.raises(RuntimeError, match="contention"):
+            ledger.record_event(tbl, env("acknowledged", "SUGGESTION_POSTBACK", mid="in-2"))
+    finally:
+        client.transact_write_items = real
+    assert ledger.record_event(tbl, env("acknowledged", "SUGGESTION_POSTBACK", mid="in-2"))["status"] == "applied"
+
+
+def test_postback_survives_percent_encoding_by_mail_clients():
+    from urllib.parse import quote
+    link = "https://d.example/ack.html?p=" + quote(build_postback(NOTICE, "r-9"), safe="")
+    assert "%3A" in link and parse_postback(link) == (NOTICE, "r-9")

@@ -1,4 +1,4 @@
-"""Print the raw provider events stored in the ledger. Used for the WhatsApp button_reply spike (S-19)
+"""Print the raw provider events stored in the ledger. Used for the WhatsApp button_reply spike
 and for checking that every row of the dashboard has an AWS event behind it.
 
     python scripts/dump_events.py --channel whatsapp --last 5

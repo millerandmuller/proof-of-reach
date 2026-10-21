@@ -1,4 +1,4 @@
-"""F2: RCS configuration-set event destination (SNS -> SQS) -> ledger. Delivered, read, failed, fallback."""
+"""RCS configuration-set event destination (SNS -> SQS) -> ledger. Delivered, read, failed, fallback."""
 from common import normalize, pipeline
 from consumers import batch
 

@@ -4,6 +4,7 @@ The tiers are never collapsed: sent < delivered < read < acknowledged.
 Only `acknowledged` is proof; `read` is a receipt the recipient can switch off.
 """
 from typing import Optional, Tuple
+from urllib.parse import unquote
 
 from common.config import POSTBACK_PREFIX
 
@@ -28,6 +29,7 @@ def parse_postback(text: str) -> Optional[Tuple[str, str]]:
     """
     if not text:
         return None
+    text = unquote(text)  # mail clients and link rewriters may percent-encode the colons
     start = text.find(POSTBACK_PREFIX + ":")
     if start < 0:
         return None

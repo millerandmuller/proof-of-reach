@@ -3,10 +3,10 @@
     python scripts/wire_channels.py --rcs-agent rcs-xxxxxxxx
     python scripts/wire_channels.py --waba <WABA id or arn>
 
-RCS: enables two-way messaging on the agent so suggestion taps reach the two-way topic (S-04).
+RCS: enables two-way messaging on the agent so suggestion taps reach the two-way topic.
      The configuration set with the delivery and read destination is created by the stack and
      is selected per message (ConfigurationSetName), so nothing else is needed.
-WhatsApp: sets the stack's SNS topic as the event destination of the WhatsApp Business Account (S-16).
+WhatsApp: sets the stack's SNS topic as the event destination of the WhatsApp Business Account.
 SES: needs no wiring; the stack's configuration set publishes to its topic.
 """
 import argparse

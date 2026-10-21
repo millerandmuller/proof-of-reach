@@ -7,7 +7,7 @@
   ];
   var CHANNEL_NAMES = { rcs: "RCS", whatsapp: "WhatsApp", email: "Email" };
   var STATE_TEXT = { acknowledged: "acknowledged", read: "read only", delivered: "delivered only", sent: "sent only", unreachable: "unreachable", none: "not started", not_started: "not started" };
-  var cfg = null, started = false, seen = {}, reportTimer = null;
+  var cfg = null, started = false, seen = {}, reportTimer = null, lastAck = 0;
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -119,7 +119,8 @@
       $("notice-title").textContent = "No notice seeded";
       $("status-chip").textContent = "empty"; return;
     }
-    $("notice-title").textContent = d.title || d.notice_id;
+    var defaults = Object.keys(d.text_sources || {}).filter(function (k) { return d.text_sources[k] === "default"; }).length;
+    $("notice-title").textContent = (d.title || d.notice_id) + (defaults ? " · default text for " + defaults + " of " + Object.keys(d.text_sources).length + " messages" : "");
     var chip = $("status-chip");
     chip.className = "chip " + d.status;
     chip.textContent = d.status === "running" ? "running · stage " + Math.min(d.stage || 1, 3) + " of 3" : d.status;
@@ -128,6 +129,10 @@
     $("empty").hidden = !empty;
     $("bar-label").textContent = empty ? "" : d.label;
     $("bar-label").hidden = empty;
+    var ack = d.counts.acknowledged || 0, countEl = $("bar-count");
+    countEl.textContent = empty ? "" : fmt(ack) + " of " + fmt(d.total) + " acknowledged";
+    if (started && ack > lastAck) { countEl.classList.remove("pulse"); void countEl.offsetWidth; countEl.classList.add("pulse"); }
+    lastAck = ack;
     renderBar(d); renderChannels(d); renderLive(d);
     $("footer-text").textContent = d.footer || "";
     if (!reportTimer && d.status !== "ready") { loadReport(); reportTimer = setInterval(loadReport, 5000); }
@@ -183,8 +188,9 @@
   function onStart() {
     var btn = $("start-btn");
     btn.disabled = true;
-    api("/start", { method: "POST" }).then(function (res) {
-      if (res.status === 409) banner("This notice was already started. Reset it with seed/seed.py --reset.");
+    api("/start", { method: "POST", headers: { "x-start-token": cfg.startToken || "" } }).then(function (res) {
+      if (res.status === 403) banner("Start was refused: the dashboard config has no valid start token. Run scripts/deploy.sh.");
+      else if (res.status === 409) banner("This notice was already started. Reset it with seed/seed.py --reset.");
       else if (res.status >= 300) banner("Start failed: " + (res.body.error || res.status));
       else { banner(""); poll(); }
     }).catch(function () { banner("Start request failed; check the connection."); })

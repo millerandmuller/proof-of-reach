@@ -1,4 +1,4 @@
-"""Replay player: publishes the corpus to the real SNS topics so the real consumers process it (F13).
+"""Replay player: publishes the corpus to the real SNS topics so the real consumers process it.
 
     python seed/replay.py --stack proof-of-reach
 

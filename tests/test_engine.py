@@ -124,3 +124,65 @@ def test_delivered_and_read_recipients_are_not_called_unreachable_at_close(notic
     assert ledger.get_recipient(notice, N, "a")["state"] == "delivered"
     assert ledger.get_recipient(notice, N, "b")["state"] == "read"
     assert ledger.get_recipient(notice, N, "c")["state"] == "unreachable"  # sent on every rung, never delivered
+
+
+class CountingRcs:
+    def __init__(self):
+        self.sent = []
+
+    def send_rcs_message(self, **kw):
+        self.sent.append(kw["DestinationPhoneNumber"])
+        return {"MessageId": f"m-{len(self.sent)}"}
+
+
+def test_rerun_of_a_stage_does_not_double_send(tbl):
+    ledger.put_meta(tbl, N, dict(META))
+    ledger.put_recipient(tbl, N, rec("live-1", live=True))
+    fake = CountingRcs()
+    sched = []
+    rule_engine.run_stage(tbl, N, 1, clients={"rcs": fake}, schedule=lambda *a: sched.append(a))
+    rule_engine.run_stage(tbl, N, 1, clients={"rcs": fake}, schedule=lambda *a: sched.append(a))  # Lambda retry or Scheduler redelivery
+    assert fake.sent == ["+1555"]
+
+
+def test_stage_older_than_the_notice_is_skipped_entirely(tbl):
+    ledger.put_meta(tbl, N, dict(META))
+    ledger.put_recipient(tbl, N, rec("live-1", live=True))
+    fake = CountingRcs()
+    for s in (1, 2, 3, 4):
+        rule_engine.run_stage(tbl, N, s, clients={"rcs": fake, "whatsapp": type("W", (), {"send_whatsapp_message": lambda self, **k: {"messageId": "w"}})(),
+                                                  "email": type("E", (), {"send_email": lambda self, **k: {"MessageId": "e"}})()},
+                              schedule=lambda *a: None)
+    sent_before = len(fake.sent)
+    out = rule_engine.run_stage(tbl, N, 1, clients={"rcs": fake}, schedule=lambda *a: None)  # stale redelivery after close
+    assert out["skipped"] and len(fake.sent) == sent_before
+    assert ledger.get_meta(tbl, N)["stage"] == 4 and ledger.get_meta(tbl, N)["status"] == "closed"
+
+
+def test_all_sends_failing_still_schedules_the_next_window(tbl):
+    ledger.put_meta(tbl, N, dict(META))
+    ledger.put_recipient(tbl, N, rec("x", live=True))
+
+    class Boom:
+        def send_rcs_message(self, **kw):
+            raise ClientError({"Error": {"Code": "ThrottlingException", "Message": "arn:aws:iam::123456789012:role/x +15551234567"}}, "SendRcsMessage")
+
+    sched = []
+    with pytest.raises(RuntimeError):
+        rule_engine.run_stage(tbl, N, 1, clients={"rcs": Boom()}, schedule=lambda *a: sched.append(a))
+    assert sched == [(N, 2, 90)]  # the ladder moves on to the next channel
+    reason = ledger.get_recipient(tbl, N, "x")["last_failure"]["reason"]
+    assert reason == "send failed: ThrottlingException" and "123456789012" not in reason
+
+
+def test_unreachable_verdict_never_overwrites_a_delivery_that_landed_in_between(notice):
+    ledger.record_event(notice, {"notice_id": N, "recipient_id": "a", "channel": "rcs", "event": "RCS_DELIVERED", "tier": "delivered",
+                                 "provider_message_id": "m", "provider_timestamp": "t", "raw": {"x": 1}})
+    assert ledger.mark_unreachable(notice, N, "a", "stale verdict") is False
+    assert ledger.get_recipient(notice, N, "a")["state"] == "delivered"
+
+
+def test_schedule_names_are_valid_for_hostile_notice_ids():
+    name = rule_engine.schedule_name("Recall: heater/HX 200 ü" + "x" * 100, 2)
+    import re
+    assert re.fullmatch(r"[0-9A-Za-z_.-]{1,64}", name) and name.endswith("-stage2")

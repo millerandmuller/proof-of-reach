@@ -1,4 +1,4 @@
-"""Notice text: prompt, output parsing, deterministic validator, stored defaults (F14).
+"""Notice text: prompt, output parsing, deterministic validator, stored defaults.
 
 Pure Python with no AWS imports, so the same file runs inside the AgentCore
 Runtime package, inside the start Lambda (for validation and fallback) and in tests.
@@ -61,10 +61,16 @@ def validate_body(body: str, brief: Dict[str, str]) -> List[str]:
     return problems
 
 
+def _channel(texts: Dict[str, Any], segment: str, channel: str) -> Dict[str, Any]:
+    seg = texts.get(segment)
+    ch = seg.get(channel) if isinstance(seg, dict) else None
+    return ch if isinstance(ch, dict) else {}
+
+
 def _bodies(texts: Dict[str, Any]):
     for segment in SEGMENTS:
         for channel in CHANNELS:
-            yield segment, channel, texts.get(segment, {}).get(channel, {}).get("body")
+            yield segment, channel, _channel(texts, segment, channel).get("body")
 
 
 def validate_texts(texts: Dict[str, Any], brief: Dict[str, str]) -> Dict[str, List[str]]:
@@ -76,9 +82,9 @@ def validate_texts(texts: Dict[str, Any], brief: Dict[str, str]) -> Dict[str, Li
             out[key] = ["missing body"]
             continue
         problems = validate_body(body, brief)
-        if channel == "rcs" and not str(texts[segment][channel].get("title", "")).strip():
+        if channel == "rcs" and not str(_channel(texts, segment, channel).get("title", "")).strip():
             problems.append("missing title")
-        if channel == "email" and not str(texts[segment][channel].get("subject", "")).strip():
+        if channel == "email" and not str(_channel(texts, segment, channel).get("subject", "")).strip():
             problems.append("missing subject")
         if problems:
             out[key] = problems
@@ -111,7 +117,8 @@ def merge_with_defaults(model_texts: Dict[str, Any], brief: Dict[str, str]):
         texts[segment] = {}
         for channel in CHANNELS:
             key = f"{segment}.{channel}"
-            candidate = (model_texts or {}).get(segment, {}).get(channel) if isinstance(model_texts, dict) else None
+            seg_texts = model_texts.get(segment) if isinstance(model_texts, dict) else None
+            candidate = seg_texts.get(channel) if isinstance(seg_texts, dict) else None
             if candidate is not None and key not in problems and isinstance(candidate, dict):
                 texts[segment][channel] = candidate
                 sources[key] = "agent"
@@ -119,3 +126,17 @@ def merge_with_defaults(model_texts: Dict[str, Any], brief: Dict[str, str]):
                 texts[segment][channel] = defaults[segment][channel]
                 sources[key] = "default"
     return texts, sources
+
+
+def clean_themes(themes: Any, reply_count: int) -> List[Dict[str, Any]]:
+    """Model output is untrusted: keep only themes with a text label and reply numbers inside 1..reply_count."""
+    out: List[Dict[str, Any]] = []
+    if not isinstance(themes, list):
+        return out
+    for theme in themes:
+        if not isinstance(theme, dict) or not isinstance(theme.get("label"), str):
+            continue
+        numbers = [n for n in theme.get("replies", []) if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= reply_count]
+        if numbers:
+            out.append({"label": theme["label"][:80], "replies": sorted(set(numbers))})
+    return out

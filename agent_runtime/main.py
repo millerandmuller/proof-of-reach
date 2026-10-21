@@ -1,4 +1,4 @@
-"""AgentCore Runtime entrypoint: the notice writer and the reply summarizer (F14, F15).
+"""AgentCore Runtime entrypoint: the notice writer and the reply summarizer.
 
 Implements the HTTP contract directly with the standard library (port 8080,
 GET /ping, POST /invocations) so the zip has no native dependencies.

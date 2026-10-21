@@ -1,4 +1,4 @@
-"""F9: email stage. SES v2 SendEmail with a configuration set; the link click is the acknowledgment (S-23)."""
+"""email stage. SES v2 SendEmail with a configuration set; the link click is the acknowledgment."""
 from typing import Dict
 from urllib.parse import quote
 
@@ -21,7 +21,7 @@ def build_body(texts: Dict[str, str], postback: str) -> Dict[str, Dict[str, str]
 
 
 def send(client, address: str, texts: Dict[str, str], postback: str) -> str:
-    resp = client.send_email(  # CDS call: Amazon SES v2 (F9)
+    resp = client.send_email(  # CDS call: Amazon SES v2
         FromEmailAddress=config.SES_SENDER,
         Destination={"ToAddresses": [address]},
         ConfigurationSetName=config.SES_CONFIGURATION_SET,

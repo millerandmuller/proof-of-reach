@@ -54,7 +54,6 @@ def send_rung(tbl, meta: Dict[str, Any], item: Dict[str, Any], channel: str, sta
     ledger.record_event(tbl, {
         "notice_id": notice_id, "recipient_id": recipient_id, "channel": channel, "event": "SENT", "tier": "sent",
         "provider_message_id": message_id, "provider_timestamp": ledger.now_iso(), "raw": raw,
-        "replayed": not item["live_device"],
+        "replayed": not item["live_device"], "stage": stage,  # the stage is written in the same transaction as the send
     })
-    ledger.set_stage(tbl, notice_id, recipient_id, stage)
     return message_id

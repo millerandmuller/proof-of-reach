@@ -5,7 +5,7 @@ is_bot, replayed; plus optional notice_id/recipient_id (when the payload carries
 the postback string) and lookup_id (outbound message id to map back to a row).
 
 Tier `failed` is not a proof tier; it records a failure reason and never moves a state.
-Sources: stack_dossier_cds.md [S-02] to [S-04], [S-14] to [S-16], [S-23].
+Sources: the AWS End User Messaging (RCS and Social) and SES event documentation.
 """
 import json
 from datetime import datetime, timezone
@@ -50,7 +50,7 @@ _RCS_FAILURE_STATUSES = {"UNDELIVERABLE", "REJECTED"}
 
 
 def normalize_rcs_status(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Configuration-set event destination record (S-02, S-03). None means ignore."""
+    """Configuration-set event destination record. None means ignore."""
     event = msg.get("eventType", "")
     status = msg.get("messageStatus")
     mid = msg.get("messageId")
@@ -68,7 +68,7 @@ def normalize_rcs_status(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def normalize_rcs_inbound(msg: Dict[str, Any], sns_timestamp: str) -> Optional[Dict[str, Any]]:
-    """Two-way topic record (S-04, S-05). Suggestion taps become acknowledgments,
+    """Two-way topic record. Suggestion taps become acknowledgments,
     free text becomes a reply for the summarizer, everything else is ignored."""
     body_raw = msg.get("messageBody", "")
     inbound_id = msg.get("inboundMessageId")
@@ -98,7 +98,7 @@ _WA_STATUS_TIER = {"sent": "sent", "delivered": "delivered", "read": "read"}
 
 
 def unwrap_whatsapp(sns_message: Dict[str, Any]) -> Dict[str, Any]:
-    """The AWS header carries the Meta entry as a JSON string (S-16)."""
+    """The AWS header carries the Meta entry as a JSON string."""
     entry = sns_message.get("whatsAppWebhookEntry")
     return json.loads(entry) if isinstance(entry, str) else (entry or {})
 
@@ -107,7 +107,7 @@ def normalize_whatsapp(sns_message: Dict[str, Any]) -> List[Dict[str, Any]]:
     """All events in one SNS record: status updates, button replies and free text.
 
     The inbound button_reply shape follows Meta's documented webhook; it is not
-    shown on any AWS page (S-19) and is verified by the spike on the live number.
+    shown on any AWS page and is verified by the spike on the live number.
     """
     entry = unwrap_whatsapp(sns_message)
     out: List[Dict[str, Any]] = []
@@ -151,7 +151,7 @@ def normalize_whatsapp(sns_message: Dict[str, Any]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------- SES
 
 def normalize_ses(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """SES event publishing record (S-23). A click on the acknowledgment link is the acknowledgment."""
+    """SES event publishing record. A click on the acknowledgment link is the acknowledgment."""
     event = msg.get("eventType") or msg.get("notificationType", "")
     mail = msg.get("mail", {})
     mid = mail.get("messageId")

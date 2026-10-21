@@ -52,12 +52,13 @@ Globals:
         SES_CONFIGURATION_SET: por-ses
         ACK_BASE_URL: !Sub "https://${DashboardDistribution.DomainName}"
         WINDOW_SECONDS: !Ref WindowSeconds
+        START_TOKEN: !Select [2, !Split ["/", !Ref "AWS::StackId"]]  # not a secret: it stops cross-site and drive-by starts; the dashboard sends it
         ENGINE_FUNCTION_ARN: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-engine"
         SCHEDULER_ROLE_ARN: !GetAtt SchedulerRole.Arn
         AGENT_RUNTIME_ARN: !GetAtt NoticeWriterRuntime.AgentRuntimeArn
 
 Resources:
-  # ---------------------------------------------------------------- ledger (F1)
+  # ---------------------------------------------------------------- ledger 
   LedgerTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -133,9 +134,9 @@ Resources:
             Principal: {Service: ses.amazonaws.com}
             Action: sns:Publish
             Resource: !Ref SesTopic
-            Condition: {StringEquals: {"AWS:SourceAccount": !Ref "AWS::AccountId"}}
+            Condition: {StringEquals: {"aws:SourceAccount": !Ref "AWS::AccountId"}}
 
-  # RCS configuration set: delivery, read, failure and fallback events go to RcsEventsTopic (S-02, S-03).
+  # RCS configuration set: delivery, read, failure and fallback events go to RcsEventsTopic (RCS event types).
   RcsConfigurationSet:
     Type: AWS::SMSVOICE::ConfigurationSet
     Properties:
@@ -147,7 +148,7 @@ Resources:
           MatchingEventTypes: [RCS_DELIVERED, RCS_READ, RCS_FAILED, RCS_TTL_EXPIRED, RCS_FALLEN_BACK_TO_SMS]
           SnsDestination: {TopicArn: !Ref RcsEventsTopic}
 
-  # SES configuration set: event publishing enables open and click tracking (S-23).
+  # SES configuration set: event publishing enables open and click tracking (open and click events need no extra feature).
   SesConfigurationSet:
     Type: AWS::SES::ConfigurationSet
     Properties:
@@ -162,7 +163,7 @@ Resources:
         MatchingEventTypes: [delivery, open, click, bounce, reject, complaint]
         SnsDestination: {TopicARN: !Ref SesTopic}
 
-  # Role the RCS agent assumes to publish taps to the two-way topic (S-04). Wired by scripts/wire_rcs.py.
+  # Role the RCS agent assumes to publish taps to the two-way topic (suggestion taps). Wired by scripts/wire_channels.py.
   RcsTwoWayRole:
     Type: AWS::IAM::Role
     Properties:
@@ -299,15 +300,13 @@ Resources:
       TopicArn: !Ref SesTopic
       Endpoint: !GetAtt SesQueue.Arn
 
-  # ---------------------------------------------------------------- consumers (F2 to F5)
+  # ---------------------------------------------------------------- consumers
   RcsEventsFn:
     Type: AWS::Serverless::Function
     Properties:
       Handler: consumers.rcs_events.handler
       Policies: &consumer_policies
         - DynamoDBCrudPolicy: {TableName: !Ref LedgerTable}
-        - Statement:
-            - {Effect: Allow, Action: sms-voice:PutMessageFeedback, Resource: "*"}
       Events:
         Queue:
           Type: SQS
@@ -321,7 +320,10 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       Handler: consumers.rcs_twoway.handler
-      Policies: *consumer_policies
+      Policies:
+        - DynamoDBCrudPolicy: {TableName: !Ref LedgerTable}
+        - Statement:  # only a tap on the RCS card closes the feedback loop
+            - {Effect: Allow, Action: sms-voice:PutMessageFeedback, Resource: "*"}
       Events:
         Queue:
           Type: SQS
@@ -360,7 +362,7 @@ Resources:
             FunctionResponseTypes: [ReportBatchItemFailures]
             ScalingConfig: {MaximumConcurrency: 2}
 
-  # ---------------------------------------------------------------- rule engine and senders (F6 to F9)
+  # ---------------------------------------------------------------- rule engine and senders
   EngineFn:
     Type: AWS::Serverless::Function
     Properties:
@@ -373,9 +375,12 @@ Resources:
         - Statement:
             - {Effect: Allow, Action: sms-voice:SendRcsMessage, Resource: "*"}
             - {Effect: Allow, Action: social-messaging:SendWhatsAppMessage, Resource: "*"}
-            - {Effect: Allow, Action: [ses:SendEmail, ses:SendRawEmail], Resource: "*"}
+            - {Effect: Allow, Action: ses:SendEmail, Resource: "*"}
             - {Effect: Allow, Action: scheduler:CreateSchedule, Resource: "*"}
-            - {Effect: Allow, Action: iam:PassRole, Resource: !GetAtt SchedulerRole.Arn}
+            - Effect: Allow
+              Action: iam:PassRole
+              Resource: !GetAtt SchedulerRole.Arn
+              Condition: {StringEquals: {"iam:PassedToService": scheduler.amazonaws.com}}
 
   SchedulerRole:
     Type: AWS::IAM::Role
@@ -396,7 +401,7 @@ Resources:
                 Action: lambda:InvokeFunction
                 Resource: !Sub "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${AWS::StackName}-engine"
 
-  # ---------------------------------------------------------------- notice writer on AgentCore Runtime (F14, F15)
+  # ---------------------------------------------------------------- notice writer on AgentCore Runtime 
   AgentRuntimeRole:
     Type: AWS::IAM::Role
     Properties:
@@ -422,7 +427,9 @@ Resources:
                 Resource: !Sub "arn:${AWS::Partition}:s3:::${AgentCodeBucket}/*"
               - Effect: Allow
                 Action: [logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents]
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+                  - !Sub "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
 
   NoticeWriterRuntime:
     Type: AWS::BedrockAgentCore::Runtime
@@ -439,7 +446,7 @@ Resources:
           Code:
             S3: {Bucket: !Ref AgentCodeBucket, Prefix: !Ref AgentCodeKey}
 
-  # ---------------------------------------------------------------- read API and start (F11, F12)
+  # ---------------------------------------------------------------- read API and start 
   ApiFn:
     Type: AWS::Serverless::Function
     Properties:
@@ -458,9 +465,9 @@ Resources:
       FunctionUrlConfig:
         AuthType: NONE
         Cors:
-          AllowOrigins: ["*"]
+          AllowOrigins: [!Sub "https://${DashboardDistribution.DomainName}"]
           AllowMethods: [GET, POST]
-          AllowHeaders: [content-type]
+          AllowHeaders: [content-type, x-start-token]
 
   # ---------------------------------------------------------------- dashboard hosting
   DashboardBucket:
@@ -505,7 +512,7 @@ Resources:
             Resource: !Sub "${DashboardBucket.Arn}/*"
             Condition:
               StringEquals:
-                "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}"
+                "aws:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${DashboardDistribution}"
 
 Outputs:
   LedgerTable: {Value: !Ref LedgerTable}
@@ -513,6 +520,7 @@ Outputs:
   DashboardUrl: {Value: !Sub "https://${DashboardDistribution.DomainName}"}
   DashboardBucket: {Value: !Ref DashboardBucket}
   DashboardDistributionId: {Value: !Ref DashboardDistribution}
+  StartToken: {Value: !Select [2, !Split ["/", !Ref "AWS::StackId"]]}
   RcsEventsTopicArn: {Value: !Ref RcsEventsTopic}
   RcsTwoWayTopicArn: {Value: !Ref RcsTwoWayTopic}
   RcsTwoWayRoleArn: {Value: !GetAtt RcsTwoWayRole.Arn}
