@@ -1,4 +1,4 @@
-"""Examiner findings: contact data in /state, start token, failed start, report robustness."""
+"""Contact data in /state, start token, failed start and report robustness."""
 import json
 from datetime import datetime, timezone
 
@@ -39,7 +39,7 @@ def test_redaction_removes_phone_numbers_and_mailboxes_from_every_provider_shape
             assert secret not in out, (secret, out)
     assert json.loads(planted(rcs_tap))["messageBody"] == {"type": "SUGGESTION", "postbackData": "por:v1:N:r:ack"}
     assert json.loads(planted(rcs_status))["eventType"] == "RCS_READ"  # the useful fields survive
-    assert "statuses" in planted(wa) and "wamid.A" in planted(wa)
+    assert "statuses" in planted(wa) and "wamid.A" not in planted(wa) and "wamid." in planted(wa)  # id masked, shape kept
 
 
 def test_replayed_corpus_payloads_also_pass_through_redaction_clean():
@@ -113,7 +113,8 @@ def test_summarizer_theme_output_is_cleaned():
     assert nt.clean_themes("nope", 3) == []
 
 
-def test_failed_summary_is_not_cached_and_is_retried(tbl):
+def test_failed_summary_is_not_cached_and_is_retried(tbl, monkeypatch):
+    monkeypatch.setattr(handler, "SUMMARY_RETRY_SECONDS", -1)  # retry immediately; the throttle has its own test
     seed(tbl)
     ledger.store_reply(tbl, N, "live", "rcs", "where is my refund?", "e1", "t")
     calls = []
@@ -141,3 +142,62 @@ def test_report_caps_the_exception_list_and_counts_unmatched_in_both_partitions(
 def test_one_acknowledgment_never_reads_as_zero_percent():
     counts = {"acknowledged": 1, "read": 0, "delivered": 0, "sent": 1999, "unreachable": 0, "not_started": 0}
     assert report.bar_label(counts, 2000) == "<1 % acknowledged · 100 % sent"
+
+
+def test_whatsapp_message_ids_are_masked_and_click_links_are_dropped():
+    wamid = "wamid.HBgLMTU1NTk4NzY1NDMVAgARGBJ"  # base64 of a phone number follows the prefix
+    raw = {"whatsAppWebhookEntry": json.dumps({"changes": [{"value": {"statuses": [{"id": wamid, "status": "read"}]}}]})}
+    out = json.dumps(redact.public_raw(raw))
+    assert wamid not in out and "HBgL" not in out and "wamid." in out
+    assert redact.mask_id(wamid) == redact.mask_id(wamid) != wamid  # stable fingerprint
+    click = {"eventType": "Click", "click": {"link": "https://x/ack?p=por:v1:N:r:ack&email=" + MAIL, "timestamp": "t"}}
+    assert MAIL not in json.dumps(redact.public_raw(click))
+
+
+def test_update_meta_changes_only_the_given_fields_and_never_creates_a_notice(tbl):
+    ledger.put_meta(tbl, N, {"status": "running", "stage": 3, "closed_at": "t", "reply_count": 0})
+    ledger.update_meta(tbl, N, {"reply_themes": [{"label": "x", "replies": [1]}], "reply_count": 1})  # what /report writes
+    meta = ledger.get_meta(tbl, N)
+    assert meta["status"] == "running" and meta["stage"] == 3 and meta["closed_at"] == "t" and meta["reply_count"] == 1
+    with pytest.raises(ValueError, match="unknown notice"):
+        ledger.update_meta(tbl, "missing", {"status": "ready"})
+    assert ledger.get_meta(tbl, "missing") is None
+
+
+def test_report_write_cannot_reopen_a_notice_the_engine_closed_meanwhile(tbl):
+    seed(tbl)
+    ledger.update_meta(tbl, N, {"status": "running"})
+    ledger.store_reply(tbl, N, "live", "rcs", "refund?", "e1", "t")
+
+    def summarize_while_engine_closes(replies):
+        ledger.update_meta(tbl, N, {"status": "closed", "closed_at": "2026-10-26T18:00:00Z"})  # lands during the model call
+        return {"themes": [{"label": "refund", "replies": [1]}], "error": None}
+
+    handler.get_report(tbl, N, summarize=summarize_while_engine_closes)
+    assert ledger.get_meta(tbl, N)["status"] == "closed"
+
+
+def test_failed_summary_is_retried_at_most_once_a_minute(tbl):
+    seed(tbl)
+    ledger.store_reply(tbl, N, "live", "rcs", "refund?", "e1", "t")
+    calls = []
+    handler.get_report(tbl, N, summarize=lambda r: calls.append(1) or {"themes": [], "error": "down"})
+    handler.get_report(tbl, N, summarize=lambda r: calls.append(1) or {"themes": [], "error": "down"})
+    assert len(calls) == 1
+
+
+def test_client_cleans_theme_output_and_start_token_edge_cases(tbl, monkeypatch):
+    import io
+    from agent import client as agent_client
+
+    class Fake:
+        def invoke_agent_runtime(self, **kw):
+            return {"response": io.BytesIO(json.dumps({"themes": [{"label": "a", "replies": [1, 2.5, 9]}, "junk"]}).encode())}
+
+    assert agent_client.summarize_replies(["one", "two"], client=Fake())["themes"] == [{"label": "a", "replies": [1]}]
+    seed(tbl)
+    monkeypatch.setattr(handler, "START_TOKEN", "t0k3n")
+    monkeypatch.setattr(handler.start_notice, "start", lambda tbl, nid: {"ok": True, "status": 202})
+    assert call("POST", "/start", {"X-Start-Token": "t0k3n"})["statusCode"] == 202  # correct token, any header case
+    monkeypatch.setattr(handler, "START_TOKEN", "")
+    assert call("POST", "/start")["statusCode"] == 202  # empty configuration disables the check (documented)

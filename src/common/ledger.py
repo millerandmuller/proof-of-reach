@@ -328,8 +328,13 @@ def update_meta(tbl, notice_id: str, fields: Dict[str, Any]) -> None:
     names = {f"#f{i}": k for i, k in enumerate(fields)}
     values = {f":v{i}": v for i, v in enumerate(fields.values())}
     expr = "SET " + ", ".join(f"#f{i} = :v{i}" for i in range(len(fields)))
-    tbl.update_item(Key={"pk": notice_pk(notice_id), "sk": "meta"}, UpdateExpression=expr,
-                    ExpressionAttributeNames=names, ExpressionAttributeValues=values)
+    try:
+        tbl.update_item(Key={"pk": notice_pk(notice_id), "sk": "meta"}, UpdateExpression=expr, ConditionExpression="attribute_exists(pk)",
+                        ExpressionAttributeNames=names, ExpressionAttributeValues=values)
+    except ClientError as err:
+        if err.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            raise ValueError(f"unknown notice {notice_id}") from err
+        raise
 
 
 def release_start(tbl, notice_id: str) -> None:

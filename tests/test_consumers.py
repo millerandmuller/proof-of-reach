@@ -1,4 +1,4 @@
-"""Consumers exercised with the payload shapes from the AWS docs (S-03, S-04, S-16, S-23)."""
+"""Consumers exercised with the payload shapes from the AWS docs (RCS events, RCS two-way, WhatsApp, SES)."""
 import json
 from datetime import datetime, timezone
 

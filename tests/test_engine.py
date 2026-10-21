@@ -186,3 +186,16 @@ def test_schedule_names_are_valid_for_hostile_notice_ids():
     name = rule_engine.schedule_name("Recall: heater/HX 200 ü" + "x" * 100, 2)
     import re
     assert re.fullmatch(r"[0-9A-Za-z_.-]{1,64}", name) and name.endswith("-stage2")
+
+
+def test_existing_scheduler_conflict_is_tolerated_but_other_errors_are_not():
+    class Sched:
+        def __init__(self, code):
+            self.code = code
+
+        def create_schedule(self, **kw):
+            raise ClientError({"Error": {"Code": self.code, "Message": "x"}}, "CreateSchedule")
+
+    assert rule_engine.schedule_stage(N, 2, 90, scheduler=Sched("ConflictException")).endswith("-stage2")
+    with pytest.raises(ClientError):
+        rule_engine.schedule_stage(N, 2, 90, scheduler=Sched("AccessDeniedException"))

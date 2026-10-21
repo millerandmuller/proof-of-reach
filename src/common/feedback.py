@@ -46,6 +46,6 @@ def close_loop(tbl, item: Dict[str, Any], now: Optional[datetime] = None, client
         log.warning("PutMessageFeedback skipped for %s: outside the one-hour window", item["recipient_id"])
         return "window_expired"
     client = client or boto3.client("pinpoint-sms-voice-v2", region_name=config.REGION)
-    client.put_message_feedback(MessageId=entry["provider_message_id"], MessageFeedbackStatus="RECEIVED")  # CDS call: F10
+    client.put_message_feedback(MessageId=entry["provider_message_id"], MessageFeedbackStatus="RECEIVED")  # CDS call: End User Messaging RCS feedback
     ledger.mark_feedback_sent(tbl, item["notice_id"], item["recipient_id"])
     return "sent"

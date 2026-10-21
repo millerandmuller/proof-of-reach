@@ -45,3 +45,9 @@ def test_open_notice_does_not_claim_letters_and_simulated_footer_is_honest():
     r = report.build_report(ITEMS, meta, themes=[], now=datetime(2026, 10, 26, 12, 1, 30, tzinfo=timezone.utc))
     assert r["headline"].endswith("after 1 min 30 s") and "have not acknowledged yet" in r["last_line"]
     assert "simulated events" in r["footer"]
+
+
+def test_exception_rows_use_the_cached_event_ids_when_history_is_not_loaded():
+    row = {"recipient_id": "a", "state": "read", "by_channel": {}, "live_device": False, "unreachable_reason": None,
+           "recent_event_ids": ["e1", "e2"], "segment": "consumer"}  # the report projection carries no tier_history
+    assert report.exception_rows([row])[0]["event_ids"] == ["e1", "e2"]

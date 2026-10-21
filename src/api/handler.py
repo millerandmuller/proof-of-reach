@@ -6,6 +6,7 @@ monitoring UI of the automation); contact data never leaves the table.
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List
 
 from agent import client as agent_client
@@ -19,6 +20,7 @@ STATE_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg"
 STATE_NAMES = {"#s": "state", "#seg": "segment"}  # both are DynamoDB reserved words
 REPORT_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg, unreachable_reason, recent_event_ids"
 START_TOKEN = os.environ.get("START_TOKEN", "")
+SUMMARY_RETRY_SECONDS = 60
 EXCEPTION_ROWS = 50  # the report lists the first rows; the full list stays in the ledger
 
 
@@ -43,7 +45,7 @@ def _live_rows(tbl, notice_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]
         history = []
         for h in item.get("tier_history", [])[-LIVE_EVENTS:]:
             ev = tbl.get_item(Key={"pk": ledger.notice_pk(notice_id), "sk": f"event#{h['event_id']}"}).get("Item") if h.get("event_id") else None
-            history.append({**h, "raw": redact.public_raw(json.loads(ev["raw_json"])) if ev else None})
+            history.append({**h, "provider_message_id": redact.mask_id(h.get("provider_message_id")), "raw": redact.public_raw(json.loads(ev["raw_json"])) if ev else None})
         rows.append({"recipient_id": rid, "label": meta.get("live_labels", {}).get(rid, rid), "state": item["state"],
                      "by_channel": item.get("by_channel", {}), "unreachable_reason": item.get("unreachable_reason"),
                      "history": history})
@@ -73,11 +75,14 @@ def get_report(tbl, notice_id: str, summarize=agent_client.summarize_replies) ->
         it["state"] = it.pop("state", "none")
     replies = [r["text"] for r in ledger.query_prefix(tbl, notice_id, "reply#")]
     themes = meta.get("reply_themes", [])
-    if replies and meta.get("reply_count") != len(replies):
+    retry_ok = time.time() - float(meta.get("summary_failed_at", 0)) > SUMMARY_RETRY_SECONDS
+    if replies and meta.get("reply_count") != len(replies) and retry_ok:
         result = summarize(replies)
         themes = result["themes"]
-        if result["error"] is None:  # a failed summary is retried on the next poll, never cached as final
+        if result["error"] is None:
             ledger.update_meta(tbl, notice_id, {"reply_themes": themes, "reply_count": len(replies)})
+        else:  # never cached as final, but not retried on every 5 s poll either
+            ledger.update_meta(tbl, notice_id, {"summary_failed_at": int(time.time())})
     unmatched = sum(len(ledger.query_prefix(tbl, n, "unmatched#", "sk")) for n in {notice_id, "unknown"})
     out = report.build_report(items, meta, themes, unmatched)
     out["exception_total"] = len(out["exceptions"])

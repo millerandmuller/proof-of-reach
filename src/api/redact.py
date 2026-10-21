@@ -5,6 +5,7 @@ Provider payloads carry phone numbers and mailbox addresses (originationNumber, 
 mail.destination, ...), so only keys on an allowlist survive; everything else is dropped.
 New provider fields are therefore private until someone decides they are safe.
 """
+import hashlib
 import json
 from typing import Any
 
@@ -16,15 +17,22 @@ ALLOWED_KEYS = {
     "whatsAppWebhookEntry", "message_timestamp", "id", "changes", "field", "value", "messaging_product", "statuses",
     "messages", "status", "timestamp", "context", "interactive", "button_reply", "button", "payload", "title", "errors", "code",
     # SES
-    "mail", "delivery", "open", "click", "bounce", "link", "isBotEvent", "bounceType", "bounceSubType",
+    "mail", "delivery", "open", "click", "bounce", "isBotEvent", "bounceType", "bounceSubType",
 }
+
+
+def mask_id(value: Any) -> Any:
+    """WhatsApp message ids ('wamid.' plus base64) can encode the recipient's number, so only a stable fingerprint is shown."""
+    if isinstance(value, str) and value.startswith("wamid."):
+        return "wamid." + hashlib.sha256(value.encode()).hexdigest()[:12]
+    return value
 
 
 def _filter(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: _filter(v) for k, v in value.items() if k in ALLOWED_KEYS}
+        return {k: _filter(mask_id(v)) for k, v in value.items() if k in ALLOWED_KEYS}
     if isinstance(value, list):
-        return [_filter(v) for v in value]
+        return [_filter(mask_id(v)) for v in value]
     return value
 
 
