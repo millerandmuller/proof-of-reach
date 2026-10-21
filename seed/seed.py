@@ -45,6 +45,7 @@ def reset_notice(tbl, notice_id: str, recipient_ids) -> int:
         if "LastEvaluatedKey" not in resp:
             break
         kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    keys.extend((i["pk"], i["sk"]) for i in ledger.query_prefix(tbl, "unknown", "unmatched#", projection="pk, sk"))  # a fresh report must not start with old unmatched events
     keys.extend((f"msg#replay-{ch}-{rid}", "map") for rid in recipient_ids for ch in corpus.LADDER)
     with tbl.batch_writer() as batch:
         for pk, sk in keys:

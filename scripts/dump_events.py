@@ -18,6 +18,14 @@ from common import config, ledger  # noqa: E402
 from seed import stack  # noqa: E402
 
 
+def decode_raw(raw_json: str) -> dict:
+    """The stored raw event; a WhatsApp entry arrives as a JSON string inside it and is decoded for reading."""
+    raw = json.loads(raw_json)
+    if isinstance(raw, dict) and isinstance(raw.get("whatsAppWebhookEntry"), str):
+        raw["whatsAppWebhookEntry"] = json.loads(raw["whatsAppWebhookEntry"])
+    return raw
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stack", default="proof-of-reach")
@@ -31,7 +39,11 @@ def main() -> None:
 
     config.LEDGER_TABLE = stack.outputs(args.stack, args.region)["LedgerTable"]
     tbl = ledger.table(boto3.resource("dynamodb", region_name=args.region))
-    items = ledger.query_prefix(tbl, args.notice, "unmatched#" if args.unmatched else "event#")
+    if args.unmatched:
+        # events that carried no notice id are filed under "unknown"
+        items = ledger.query_prefix(tbl, args.notice, "unmatched#") + ledger.query_prefix(tbl, "unknown", "unmatched#")
+    else:
+        items = ledger.query_prefix(tbl, args.notice, "event#")
     if args.channel:
         items = [i for i in items if i.get("channel") == args.channel]
     if not args.include_replayed:
@@ -39,7 +51,7 @@ def main() -> None:
     items.sort(key=lambda i: str(i.get("provider_timestamp") or i.get("at") or ""))
     for item in items[-args.last:]:
         print(f"--- {item.get('channel')} {item.get('event')} tier={item.get('tier')} message={item.get('provider_message_id')} at={item.get('provider_timestamp') or item.get('at')}")
-        print(json.dumps(json.loads(item["raw_json"]), indent=2))
+        print(json.dumps(decode_raw(item["raw_json"]), indent=2))
     if not items:
         print("no matching events")
 

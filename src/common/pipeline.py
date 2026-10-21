@@ -6,17 +6,25 @@ so there is one code path for live and replayed events.
 from typing import Any, Callable, Dict, Optional
 
 from common import feedback, ledger
+from common.tiers import UNPARSED
 
 
 def _resolve(tbl, env: Dict[str, Any]) -> bool:
-    """Fill notice_id/recipient_id from the message map when the payload lacks them."""
-    if env.get("notice_id") and env.get("recipient_id"):
-        return True
-    mapped = ledger.lookup_message(tbl, env.get("lookup_id") or "")
-    if mapped:
+    """Fill notice_id/recipient_id when the payload lacks them: message map by id, by the AWS send id, then the phone map.
+
+    A WhatsApp status that resolved without the map knowing its own id teaches the map that id,
+    so the rest of that message's statuses match directly.
+    """
+    own = ledger.lookup_message(tbl, env["lookup_id"]) if env.get("lookup_id") else None
+    if not (env.get("notice_id") and env.get("recipient_id")):
+        mapped = own or next((m for m in (ledger.lookup_message(tbl, i) for i in env.get("alt_lookup_ids", [])) if m), None) \
+            or ledger.lookup_phone(tbl, env.get("lookup_phone"))
+        if not mapped:
+            return False
         env["notice_id"], env["recipient_id"] = mapped["notice_id"], mapped["recipient_id"]
-        return True
-    return False
+    if env.get("learn_lookup") and env.get("lookup_id") and own is None and not _is_replay(env):
+        ledger.register_message(tbl, env["lookup_id"], env["notice_id"], env["recipient_id"], env["channel"], keep_existing=True)
+    return True
 
 
 def _is_replay(env: Dict[str, Any]) -> bool:
@@ -27,6 +35,8 @@ def _is_replay(env: Dict[str, Any]) -> bool:
 def process(tbl, env: Dict[str, Any], close_loop: Optional[Callable] = None) -> Dict[str, Any]:
     close_loop = close_loop or feedback.close_loop  # resolved at call time so tests can patch the module
     env["replayed"] = env.get("replayed", False) or _is_replay(env)
+    if env["tier"] == UNPARSED:
+        return ledger._store_unmatched(tbl, env, ledger.event_id(env), None)
     resolved = _resolve(tbl, env)
     if env["tier"] == "reply":
         if not resolved:

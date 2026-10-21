@@ -13,8 +13,11 @@ META_API_VERSION = "v20.0"
 
 
 def build_message(phone: str, texts: Dict[str, str], postback: str) -> Dict[str, Any]:
+    # biz_opaque_callback_data (max 512 chars) is echoed unchanged in every status webhook of this message,
+    # which is how a delivered, read or failed status finds its recipient without the message map.
     if config.WHATSAPP_TEMPLATE_NAME:
         return {
+            "biz_opaque_callback_data": postback,
             "messaging_product": "whatsapp",
             "to": phone,
             "type": "template",
@@ -29,6 +32,7 @@ def build_message(phone: str, texts: Dict[str, str], postback: str) -> Dict[str,
             },
         }
     return {
+        "biz_opaque_callback_data": postback,
         "messaging_product": "whatsapp",
         "to": phone,
         "type": "interactive",

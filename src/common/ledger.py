@@ -6,6 +6,7 @@ Keys (single table):
   unmatched item  pk=notice#<id>   sk=unmatched#<eid>    events we could not correlate
   meta item       pk=notice#<id>   sk=meta
   message map     pk=msg#<provider message id>  sk=map   provider id -> notice/recipient
+  phone map       pk=phone#<E.164>  sk=map                 WhatsApp number -> notice/recipient of the latest send
 
 Rules enforced here, not in the consumers:
   * a duplicate event changes nothing (event item is written with a condition);
@@ -22,7 +23,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from common import config
-from common.tiers import UNREACHABLE, next_state, rank
+from common.tiers import UNREACHABLE, e164, next_state, rank
 
 MAX_LOCK_RETRIES = 16
 
@@ -85,16 +86,34 @@ def get_recipient(tbl, notice_id: str, recipient_id: str) -> Optional[Dict[str, 
     return resp.get("Item")
 
 
-def register_message(tbl, provider_message_id: str, notice_id: str, recipient_id: str, channel: str) -> None:
-    tbl.put_item(
-        Item={
-            "pk": f"msg#{provider_message_id}",
-            "sk": "map",
-            "notice_id": notice_id,
-            "recipient_id": recipient_id,
-            "channel": channel,
-        }
-    )
+def register_message(tbl, provider_message_id: str, notice_id: str, recipient_id: str, channel: str, keep_existing: bool = False) -> None:
+    """Map a provider id to its row. `keep_existing` makes the first writer win (ids learned from events)."""
+    extra = {"ConditionExpression": "attribute_not_exists(pk)"} if keep_existing else {}
+    try:
+        tbl.put_item(
+            Item={
+                "pk": f"msg#{provider_message_id}",
+                "sk": "map",
+                "notice_id": notice_id,
+                "recipient_id": recipient_id,
+                "channel": channel,
+            },
+            **extra,
+        )
+    except ClientError as err:
+        if err.response["Error"]["Code"] != "ConditionalCheckFailedException":
+            raise
+
+
+def register_phone(tbl, phone: str, notice_id: str, recipient_id: str, at: str) -> None:
+    """Remember who was last sent a WhatsApp message at this number, so statuses and free text without an id still find the row."""
+    tbl.put_item(Item={"pk": f"phone#{e164(phone)}", "sk": "map", "notice_id": notice_id, "recipient_id": recipient_id, "at": at})
+
+
+def lookup_phone(tbl, phone: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not e164(phone):
+        return None
+    return tbl.get_item(Key={"pk": f"phone#{e164(phone)}", "sk": "map"}).get("Item")
 
 
 def lookup_message(tbl, provider_message_id: str) -> Optional[Dict[str, Any]]:

@@ -51,6 +51,8 @@ def send_rung(tbl, meta: Dict[str, Any], item: Dict[str, Any], channel: str, sta
         raw = {"MessageId": message_id, "simulated": True}
 
     ledger.register_message(tbl, message_id, notice_id, recipient_id, channel)
+    if channel == "whatsapp" and item["live_device"]:
+        ledger.register_phone(tbl, item["phone"], notice_id, recipient_id, ledger.now_iso())
     ledger.record_event(tbl, {
         "notice_id": notice_id, "recipient_id": recipient_id, "channel": channel, "event": "SENT", "tier": "sent",
         "provider_message_id": message_id, "provider_timestamp": ledger.now_iso(), "raw": raw,

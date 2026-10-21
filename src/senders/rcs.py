@@ -2,13 +2,14 @@
 from typing import Any, Dict
 
 from common import config
+from common.tiers import build_url_postback
 
 
 def build_content(texts: Dict[str, str], postback: str, notice_url: str) -> Dict[str, Any]:
     """Rich card: title, description, a Reply whose PostbackData is the acknowledgment, an OpenUrl to the notice."""
     suggestions = [{"Reply": {"Text": texts["ack_label"][:25], "PostbackData": postback}}]
     if notice_url:
-        suggestions.append({"OpenUrl": {"Text": "Read the notice", "PostbackData": f"{postback}:url", "Url": notice_url}})
+        suggestions.append({"OpenUrl": {"Text": "Read the notice", "PostbackData": build_url_postback(postback), "Url": notice_url}})
     return {
         "Content": {
             "RichCard": {

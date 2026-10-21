@@ -10,6 +10,8 @@ from common.config import POSTBACK_PREFIX
 
 TIER_RANK = {"sent": 1, "delivered": 2, "read": 3, "acknowledged": 4}
 UNREACHABLE = "unreachable"
+UNPARSED = "unparsed"  # a tap or button whose postback is not one we issued: stored, never counted
+URL_SUFFIX = ":url"  # the OpenUrl suggestion of the RCS card: a tap proves the card was opened, not acknowledged
 
 
 def rank(state: str) -> int:
@@ -19,6 +21,23 @@ def rank(state: str) -> int:
 
 def build_postback(notice_id: str, recipient_id: str) -> str:
     return f"{POSTBACK_PREFIX}:{notice_id}:{recipient_id}:ack"
+
+
+def e164(number) -> Optional[str]:
+    """`+digits` form of a phone number however it was written ("+1 555 ...", "1555..."), None when it has no digits."""
+    digits = "".join(ch for ch in str(number or "") if ch.isdigit())
+    return f"+{digits}" if digits else None
+
+
+def build_url_postback(postback: str) -> str:
+    return postback + URL_SUFFIX
+
+
+def parse_url_postback(text: str) -> Optional[Tuple[str, str]]:
+    """(notice_id, recipient_id) when `text` is the postback of the OpenUrl suggestion, else None."""
+    if not text or not text.endswith(URL_SUFFIX):
+        return None
+    return parse_postback(text[: -len(URL_SUFFIX)])
 
 
 def parse_postback(text: str) -> Optional[Tuple[str, str]]:
@@ -47,9 +66,10 @@ def parse_postback(text: str) -> Optional[Tuple[str, str]]:
 def next_state(current: str, incoming: str) -> str:
     """State after an incoming tier. A tier never regresses.
 
-    `unreachable` is a verdict of the rule engine, not a proof tier: any real
-    proof event (even `sent`) replaces it, because proof beats the verdict.
+    `unreachable` is a verdict of the rule engine, not a proof tier: a delivery, read or
+    acknowledgment replaces it, because proof beats the verdict. A late `sent` does not:
+    the provider accepting a message is not a delivery, and the verdict means "never delivered".
     """
     if current == UNREACHABLE:
-        return incoming if incoming in TIER_RANK else current
+        return incoming if rank(incoming) >= rank("delivered") else current
     return incoming if rank(incoming) > rank(current) else current

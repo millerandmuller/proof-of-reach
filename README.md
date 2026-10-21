@@ -32,7 +32,7 @@ Social (WhatsApp) and Amazon SES. The agent runs on Amazon Bedrock AgentCore Run
 |---|---|---|
 | delivered | `RCS_DELIVERED`, WhatsApp `delivered`, SES `Delivery` | no |
 | read | `RCS_READ`, WhatsApp `read`, SES `Open` | no: read receipts can be switched off, email opens are pixel based |
-| acknowledged | RCS suggestion tap, WhatsApp button reply, SES `Click` on the acknowledgment link | yes |
+| acknowledged | RCS Reply tap (the "Read the notice" link tap counts as read), WhatsApp button reply, SES `Click` on the acknowledgment link | yes |
 
 A tier never regresses, a duplicate event changes nothing, an event flagged as a bot (`isBotEvent`
 Likely) is stored but never counted, and the ledger refuses to write an acknowledgment without a
@@ -42,9 +42,9 @@ provider event id and the raw payload.
 
 | Service | API call | File and line |
 |---|---|---|
-| End User Messaging RCS | `SendRcsMessage` | `src/senders/rcs.py:28` |
+| End User Messaging RCS | `SendRcsMessage` | `src/senders/rcs.py:29` |
 | End User Messaging RCS | `PutMessageFeedback` | `src/common/feedback.py:49` |
-| End User Messaging Social | `SendWhatsAppMessage` | `src/senders/whatsapp.py:44` |
+| End User Messaging Social | `SendWhatsAppMessage` | `src/senders/whatsapp.py:48` |
 | Amazon SES v2 | `SendEmail` | `src/senders/email.py:24` |
 | AgentCore Runtime | `InvokeAgentRuntime` | `src/agent/client.py` (`invoke_runtime`) |
 | AgentCore Runtime | the agent itself | `agent_runtime/main.py` |
@@ -117,7 +117,7 @@ must reproduce the planned outcomes.
 - No claim is made about what counts as "notified" under any recall law. The ledger records what
   the providers reported.
 - WhatsApp inbound `button_reply` is handled according to Meta's webhook format; AWS does not
-  document it, so it is confirmed on a live number (`scripts/dump_events.py --channel whatsapp`).
+  document it, so it still has to be confirmed on a live number (`scripts/dump_events.py --channel whatsapp`).
 - WhatsApp free-form interactive messages need an open 24 hour customer window; outside it set
   `WHATSAPP_TEMPLATE_NAME` to an approved template with one quick reply button.
 - A new AWS account can have a Lambda limit of 10 concurrent executions. The consumers are

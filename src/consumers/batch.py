@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Tuple
 from common import ledger
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)  # the Lambda root logger defaults to WARNING, which hid every empty record
 THREADS = 8  # records of one batch are independent: the ledger is idempotent and order-insensitive
 
 
@@ -36,7 +37,10 @@ def make_handler(handle: Callable[[Any, Dict[str, Any], str], int]) -> Callable:
 
         def one(record):
             message, ts, _ = unwrap(record)
-            return handle(tbl, message, ts)
+            processed = handle(tbl, message, ts)
+            if processed == 0:
+                log.info("record produced no events; message keys: %s", sorted(message))
+            return processed
 
         def safe(record):
             try:

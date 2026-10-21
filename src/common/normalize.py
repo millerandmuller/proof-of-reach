@@ -2,7 +2,8 @@
 
 Envelope: channel, event, tier, provider_message_id, provider_timestamp, raw,
 is_bot, replayed; plus optional notice_id/recipient_id (when the payload carries
-the postback string) and lookup_id (outbound message id to map back to a row).
+the postback string), lookup_id (outbound message id to map back to a row), and for
+WhatsApp alt_lookup_ids and lookup_phone as further ways to find the row.
 
 Tier `failed` is not a proof tier; it records a failure reason and never moves a state.
 Sources: the AWS End User Messaging (RCS and Social) and SES event documentation.
@@ -11,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from common.tiers import parse_postback
+from common.tiers import UNPARSED, e164, parse_postback, parse_url_postback
 
 
 def iso_from_epoch_ms(ms: Any) -> str:
@@ -78,10 +79,20 @@ def normalize_rcs_inbound(msg: Dict[str, Any], sns_timestamp: str) -> Optional[D
     except (TypeError, ValueError):
         body = None
     if isinstance(body, dict) and body.get("type") == "SUGGESTION":
-        parsed = parse_postback(body.get("postbackData", ""))
+        postback = body.get("postbackData", "")
+        url_parsed = parse_url_postback(postback)
+        if url_parsed:
+            # The OpenUrl suggestion: the card was opened, which is a read and never an acknowledgment.
+            env = _envelope("rcs", "SUGGESTION_URL", "read", inbound_id, sns_timestamp, msg)
+            env["notice_id"], env["recipient_id"] = url_parsed
+            env["lookup_id"] = msg.get("previousPublishedMessageId")
+            return env
+        parsed = parse_postback(postback)
+        if not parsed:
+            # only a postback we issued is proof; anything else is kept for inspection and never counted
+            return _envelope("rcs", "SUGGESTION_POSTBACK", UNPARSED, inbound_id, sns_timestamp, msg)
         env = _envelope("rcs", "SUGGESTION_POSTBACK", "acknowledged", inbound_id, sns_timestamp, msg)
-        if parsed:
-            env["notice_id"], env["recipient_id"] = parsed
+        env["notice_id"], env["recipient_id"] = parsed
         env["lookup_id"] = msg.get("previousPublishedMessageId")
         return env
     if isinstance(body, dict) and body.get("type"):
@@ -111,6 +122,8 @@ def normalize_whatsapp(sns_message: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     entry = unwrap_whatsapp(sns_message)
     out: List[Dict[str, Any]] = []
+    # AWS puts its own send id at the top of status events (not of inbound ones); it is what the sender mapped.
+    aws_send_id = sns_message.get("messageId")
     for change in entry.get("changes", []):
         value = change.get("value", {})
         for st in value.get("statuses", []):
@@ -118,33 +131,49 @@ def normalize_whatsapp(sns_message: Dict[str, Any]) -> List[Dict[str, Any]]:
             status = st.get("status", "")
             if status == "failed":
                 errors = st.get("errors") or [{}]
-                reason = errors[0].get("title") or errors[0].get("message") or "failed"
-                out.append(_envelope("whatsapp", "failed", "failed", st.get("id"), ts, sns_message, failure_reason=str(reason)))
+                # the title is a fixed Meta phrase; the free-text message can carry a number, so it is never used
+                reason = errors[0].get("title") or (f"error {errors[0]['code']}" if errors[0].get("code") else "failed")
+                env = _envelope("whatsapp", "failed", "failed", st.get("id"), ts, sns_message, failure_reason=str(reason))
             elif status in _WA_STATUS_TIER:
-                out.append(_envelope("whatsapp", status, _WA_STATUS_TIER[status], st.get("id"), ts, sns_message))
+                env = _envelope("whatsapp", status, _WA_STATUS_TIER[status], st.get("id"), ts, sns_message)
+            else:
+                continue
+            # Four ways back to the row: the postback echoed by Meta, the AWS send id, the phone, and (later) the wamid itself.
+            parsed = parse_postback(st.get("biz_opaque_callback_data", ""))
+            if parsed:
+                env["notice_id"], env["recipient_id"] = parsed
+            env["alt_lookup_ids"] = [aws_send_id] if aws_send_id else []
+            env["lookup_phone"] = e164(st.get("recipient_id"))
+            env["learn_lookup"] = True  # remember the wamid so later statuses match by id
+            out.append(env)
         for m in value.get("messages", []):
             ts = iso_from_epoch_s(m["timestamp"]) if m.get("timestamp") else ""
             interactive = m.get("interactive") or {}
             if m.get("type") == "interactive" and interactive.get("type") == "button_reply":
                 button_id = (interactive.get("button_reply") or {}).get("id", "")
                 parsed = parse_postback(button_id)
+                if not parsed:  # a button we did not issue is not an acknowledgment
+                    out.append(_envelope("whatsapp", "BUTTON_REPLY", UNPARSED, m.get("id"), ts, sns_message))
+                    continue
                 env = _envelope("whatsapp", "BUTTON_REPLY", "acknowledged", m.get("id"), ts, sns_message,
                                 lookup_id=(m.get("context") or {}).get("id"))
-                if parsed:
-                    env["notice_id"], env["recipient_id"] = parsed
+                env["notice_id"], env["recipient_id"] = parsed
                 out.append(env)
             elif m.get("type") == "button":
                 # Quick-reply button of a template message (fallback path of the WhatsApp stage).
                 parsed = parse_postback((m.get("button") or {}).get("payload", ""))
+                if not parsed:
+                    out.append(_envelope("whatsapp", "BUTTON_REPLY", UNPARSED, m.get("id"), ts, sns_message))
+                    continue
                 env = _envelope("whatsapp", "BUTTON_REPLY", "acknowledged", m.get("id"), ts, sns_message,
                                 lookup_id=(m.get("context") or {}).get("id"))
-                if parsed:
-                    env["notice_id"], env["recipient_id"] = parsed
+                env["notice_id"], env["recipient_id"] = parsed
                 out.append(env)
             elif m.get("type") == "text":
                 out.append(_envelope("whatsapp", "REPLY", "reply", m.get("id"), ts, sns_message,
                                      reply_text=(m.get("text") or {}).get("body", ""),
-                                     lookup_id=(m.get("context") or {}).get("id")))
+                                     lookup_id=(m.get("context") or {}).get("id"),
+                                     lookup_phone=e164(m.get("from"))))
     return out
 
 
