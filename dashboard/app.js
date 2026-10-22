@@ -7,7 +7,7 @@
   ];
   var CHANNEL_NAMES = { rcs: "RCS", whatsapp: "WhatsApp", email: "Email" };
   var STATE_TEXT = { acknowledged: "acknowledged", read: "read only", delivered: "delivered only", sent: "sent only", unreachable: "unreachable", none: "not started", not_started: "not started" };
-  var cfg = null, started = false, seen = {}, reportTimer = null, lastAck = 0;
+  var cfg = null, started = false, seen = {}, reportTimer = null, lastAck = 0, liveIds = [];
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -133,6 +133,7 @@
     countEl.textContent = empty ? "" : fmt(ack) + " of " + fmt(d.total) + " acknowledged";
     if (started && ack > lastAck) { countEl.classList.remove("pulse"); void countEl.offsetWidth; countEl.classList.add("pulse"); }
     lastAck = ack;
+    liveIds = (d.live || []).map(function (dev) { return dev.recipient_id; });
     renderBar(d); renderChannels(d); renderLive(d);
     $("footer-text").textContent = d.footer || "";
     if (!reportTimer && d.status !== "ready") { loadReport(); reportTimer = setInterval(loadReport, 5000); }
@@ -152,14 +153,19 @@
     $("rep-last").textContent = r.last_line;
     $("report-hint").textContent = r.closed ? "final" : "updating";
     var tb = $("rep-exceptions").tBodies[0]; clear(tb);
-    r.exceptions.slice(0, 12).forEach(function (row) {
+    // live devices first (stable within each group), so a juror sees the phone they hold in the list
+    var rows = r.exceptions.map(function (row, i) { return { row: row, i: i, live: liveIds.indexOf(row.recipient_id) >= 0 ? 0 : 1 }; })
+      .sort(function (a, b) { return a.live - b.live || a.i - b.i; })
+      .map(function (x) { return x.row; });
+    var total = r.exception_total != null ? r.exception_total : rows.length; // the payload is capped; the total is not
+    rows.slice(0, 12).forEach(function (row) {
       var tr = el("tr");
       tr.appendChild(el("td", null, row.recipient_id));
       tr.appendChild(el("td", null, STATE_TEXT[row.state] || row.state));
       tr.appendChild(el("td", null, row.reason));
       tb.appendChild(tr);
     });
-    $("rep-more").textContent = r.exceptions.length > 12 ? "and " + fmt(r.exceptions.length - 12) + " more in the ledger" : "";
+    $("rep-more").textContent = total > 12 ? "and " + fmt(total - 12) + " more in the ledger" : "";
     var reasons = $("rep-reasons"); clear(reasons);
     r.reasons.slice(0, 5).forEach(function (x) { reasons.appendChild(el("li", null, x.reason + ": " + fmt(x.count))); });
     if (!r.reasons.length) reasons.appendChild(el("li", null, "none yet"));
@@ -167,7 +173,7 @@
     (r.themes || []).forEach(function (t) { themes.appendChild(el("li", null, t.label + " (" + (t.replies || []).length + ")")); });
     if (!(r.themes || []).length) themes.appendChild(el("li", null, r.reply_count ? "summary pending" : "no replies"));
     if (r.unmatched_events) {
-      $("rep-more").textContent += (r.exceptions.length > 12 ? " · " : "") + fmt(r.unmatched_events) + " events could not be matched to a recipient";
+      $("rep-more").textContent += (total > 12 ? " · " : "") + fmt(r.unmatched_events) + " events could not be matched to a recipient";
     }
   }
 

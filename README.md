@@ -58,10 +58,11 @@ Prerequisites: an AWS account with Bedrock model access, AWS CLI, AWS SAM CLI, P
 ```bash
 scripts/deploy.sh                       # one command: package the agent, deploy the stack, publish the dashboard
 python seed/seed.py --stack proof-of-reach          # seed 2,000 recipients (add --reset to start over)
-python seed/replay.py --stack proof-of-reach        # run right after pressing Start notice
+python seed/replay.py --stack proof-of-reach        # run after phone A is tapped (see the runbook below)
 ```
 
-Open the dashboard URL that `deploy.sh` prints and press **Start notice**.
+Open the dashboard URL that `deploy.sh` prints and press **Start notice**. Wait until the dashboard shows
+"100 % sent", tap the notice on phone A, then start `seed/replay.py`.
 
 Live devices: copy `seed/live_devices.example.json` to `seed/live_devices.json` and fill in your test
 phones and mailbox before seeding. Without that file every recipient is replayed and the footer says
