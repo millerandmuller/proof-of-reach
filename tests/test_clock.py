@@ -4,8 +4,10 @@ from common import config
 CAPS = ["rcs", "whatsapp", "email"]
 
 
-def device(state="sent", caps=CAPS):
-    return {"recipient_id": "live", "state": state, "channel_caps": caps}
+def device(state="sent", caps=CAPS, sent=None):
+    """`sent` are the channels with a recorded send (by_channel); the default is the first rung only."""
+    sent = caps[:1] if sent is None else sent
+    return {"recipient_id": "live", "state": state, "channel_caps": caps, "by_channel": {ch: "sent" for ch in sent}}
 
 
 def meta(stage=1, stage_at="2026-10-26T12:00:00Z", window=90, status="running"):
@@ -15,7 +17,7 @@ def meta(stage=1, stage_at="2026-10-26T12:00:00Z", window=90, status="running"):
 def test_next_rung_is_the_devices_own_ladder_and_due_is_stage_time_plus_window():
     step = clock.next_step(device(), meta())
     assert step == {"next_stage": 2, "next_channel": "whatsapp", "verdict": False, "ends_as": None, "sent_here": False,
-                    "tried": ["rcs"], "window_seconds": 90, "due_at": "2026-10-26T12:01:30Z"}
+                    "tried": ["rcs"], "unsent": [], "window_seconds": 90, "due_at": "2026-10-26T12:01:30Z"}
 
 
 def test_a_read_but_unacknowledged_device_still_gets_the_next_rung():
@@ -23,13 +25,14 @@ def test_a_read_but_unacknowledged_device_still_gets_the_next_rung():
 
 
 def test_before_stage_one_is_recorded_there_is_no_due_time():
-    step = clock.next_step(device("none"), meta(stage=0, stage_at=None))
+    step = clock.next_step(device("none", sent=[]), meta(stage=0, stage_at=None))
     assert step["next_stage"] == 1 and step["next_channel"] == "rcs" and step["tried"] == [] and step["due_at"] is None
 
 
 def test_after_the_last_rung_the_next_stage_is_the_verdict():
-    step = clock.next_step(device("delivered"), meta(stage=3))
-    assert step["next_stage"] == 4 and step["next_channel"] is None and step["verdict"] is True and step["tried"] == CAPS
+    step = clock.next_step(device("delivered", sent=CAPS), meta(stage=3))
+    assert step["next_stage"] == 4 and step["next_channel"] is None and step["verdict"] is True
+    assert step["tried"] == CAPS and step["unsent"] == []
 
 
 def test_a_device_with_fewer_channels_reaches_its_verdict_earlier():
@@ -70,3 +73,14 @@ def test_the_clock_moves_on_once_this_devices_own_send_is_recorded_before_the_st
     ahead = {**device("sent"), "stage": 2}  # stage 2 reached this device while meta.stage still says 1
     assert clock.next_step(behind, meta())["sent_here"] is False
     assert clock.next_step(ahead, meta())["sent_here"] is True
+
+
+def test_tried_follows_the_recorded_sends_not_the_stage_counter():
+    # stage 2 is recorded, but the WhatsApp send for this device failed: only RCS was ever sent
+    step = clock.next_step(device("delivered", sent=["rcs"]), meta(stage=2))
+    assert step["tried"] == ["rcs"] and step["next_stage"] == 3 and step["next_channel"] == "email"
+
+
+def test_at_the_end_of_the_ladder_a_rung_with_no_recorded_send_is_named():
+    step = clock.next_step(device("delivered", sent=["rcs", "email"]), meta(stage=3))
+    assert step["verdict"] is True and step["tried"] == ["rcs", "email"] and step["unsent"] == ["whatsapp"]

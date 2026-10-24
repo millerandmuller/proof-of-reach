@@ -81,6 +81,9 @@ def test_state_carries_the_rule_clock_and_the_checked_texts_once_running(tbl):
     texts, sources = handler.notice_text.merge_with_defaults({}, BRIEF)
     ledger.update_meta(tbl, N, {"status": "running", "stage": 1, "stage_at": "2026-10-26T12:00:00Z", "window_seconds": 90,
                                 "texts": texts, "text_sources": sources})
+    assert json.loads(call("GET", "/state", notice=N)["body"])["live"][0]["clock"]["tried"] == []  # stage 1 recorded, but no send recorded for this device
+    ledger.record_event(tbl, {"notice_id": N, "recipient_id": "live", "channel": "rcs", "event": "SENT", "tier": "sent",
+                              "provider_message_id": "m-sent", "provider_timestamp": "2026-10-26T12:00:00Z", "raw": {}, "stage": 1})
     resp = call("GET", "/state", notice=N)
     body = json.loads(resp["body"])
     step = body["live"][0]["clock"]
@@ -108,3 +111,34 @@ def test_state_history_carries_one_note_per_cause_and_the_whatsapp_status_chip(t
                      "m-bot": "bot-flagged, not counted", "w-failed": ""}
     chips = {h["provider_message_id"]: h["chip"] for h in body["live"][0]["history"]}
     assert chips["w-failed"] == "failed · error 131031" and chips["m-read"] is None
+
+
+def test_an_event_without_a_provider_payload_is_not_listed_as_one(tbl):
+    seed(tbl)
+    for name, tier, mid, raw in (("SENT", "sent", "m-send", {}), ("RCS_DELIVERED", "delivered", "m-del", {"eventType": "RCS_DELIVERED"})):
+        ledger.record_event(tbl, {"notice_id": N, "recipient_id": "live", "channel": "rcs", "event": name, "tier": tier,
+                                  "provider_message_id": mid, "provider_timestamp": f"2026-10-26T12:00:{len(mid):02d}Z", "raw": raw})
+    history = {h["provider_message_id"]: h for h in json.loads(call("GET", "/state", notice=N)["body"])["live"][0]["history"]}
+    assert history["m-send"]["raw"] is None  # the engine's own send: the page lists only real payloads
+    assert history["m-del"]["raw"] == {"eventType": "RCS_DELIVERED"}
+
+
+def test_history_notes_are_fixed_at_event_time_and_old_entries_get_none(tbl):
+    seed(tbl)
+
+    def event(tier, mid, ts):
+        ledger.record_event(tbl, {"notice_id": N, "recipient_id": "live", "channel": "rcs", "event": mid, "tier": tier,
+                                  "provider_message_id": mid, "provider_timestamp": ts, "raw": {"eventType": mid}})
+
+    event("delivered", "d1", "2026-10-26T12:00:01Z")
+    event("delivered", "d2", "2026-10-26T12:00:02Z")  # same tier, row at delivered
+    first = {h["provider_message_id"]: h["note"] for h in json.loads(call("GET", "/state", notice=N)["body"])["live"][0]["history"]}
+    event("read", "r1", "2026-10-26T12:00:03Z")
+    event("acknowledged", "a1", "2026-10-26T12:00:04Z")
+    later = {h["provider_message_id"]: h["note"] for h in json.loads(call("GET", "/state", notice=N)["body"])["live"][0]["history"]}
+    assert first["d2"] == "already at this tier" and later["d2"] == "already at this tier"  # the row climbed, the note did not move
+    item = ledger.get_recipient(tbl, N, "live")
+    item["tier_history"] = [{k: v for k, v in h.items() if k != "row_state"} for h in item["tier_history"]]  # as written before this change
+    tbl.put_item(Item=item)
+    old = {h["provider_message_id"]: h["note"] for h in json.loads(call("GET", "/state", notice=N)["body"])["live"][0]["history"]}
+    assert old["d2"] == ""

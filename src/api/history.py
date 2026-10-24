@@ -8,15 +8,20 @@ from typing import Any, Dict, Optional
 from common.tiers import rank
 
 
-def event_note(entry: Dict[str, Any], row_state: str) -> str:
-    """Note shown after the event line; empty when the event raised the tier or says everything itself."""
+def event_note(entry: Dict[str, Any]) -> str:
+    """Note shown after the event line; empty when the event raised the tier or says everything itself.
+
+    The tier comparison uses the row's tier at the time of the event (`row_state`, stored on new ledger writes).
+    Older entries have none and get no tier note, so a note never changes after the fact.
+    """
     if entry.get("counted") is not False:
         return ""
     if entry.get("is_bot"):
         return "bot-flagged, not counted"
     event_rank = rank(entry.get("state", ""))
-    if event_rank == 0:
-        return ""  # a failed event carries no tier: its own state already says failed
+    row_state = entry.get("row_state")
+    if event_rank == 0 or row_state is None:
+        return ""  # a failed event carries no tier (its state already says failed); an old entry has no row tier to compare
     row_rank = rank(row_state)
     if event_rank < row_rank:
         return f"row already at {row_state}"

@@ -46,9 +46,9 @@ def _live_rows(tbl, notice_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]
         events = []
         for h in item.get("tier_history", [])[-LIVE_EVENTS:]:
             ev = tbl.get_item(Key={"pk": ledger.notice_pk(notice_id), "sk": f"event#{h['event_id']}"}).get("Item") if h.get("event_id") else None
-            raw = redact.public_raw(json.loads(ev["raw_json"])) if ev else None
+            raw = (redact.public_raw(json.loads(ev["raw_json"])) if ev else None) or None  # the engine's own send has no provider payload: {} is not a payload
             events.append({**h, "provider_message_id": redact.mask_id(h.get("provider_message_id")), "raw": raw,
-                           "note": history.event_note(h, item["state"]), "chip": history.whatsapp_status_chip(h.get("channel"), raw)})
+                           "note": history.event_note(h), "chip": history.whatsapp_status_chip(h.get("channel"), raw)})
         rows.append({"recipient_id": rid, "label": meta.get("live_labels", {}).get(rid, rid), "state": item["state"],
                      "by_channel": item.get("by_channel", {}), "unreachable_reason": item.get("unreachable_reason"),
                      "feedback_status": item.get("feedback_status"), "history": events,

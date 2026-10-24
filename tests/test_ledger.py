@@ -180,3 +180,12 @@ def test_a_real_open_is_remembered_after_a_later_click_but_a_bot_open_is_not(tbl
         ledger.record_event(tbl, env("acknowledged", "Click", channel="email", rid=rid, mid=f"c-{rid}"))
     assert ledger.get_recipient(tbl, NOTICE, "opened")["read_seen"] == ["email"]
     assert not ledger.get_recipient(tbl, NOTICE, "botted").get("read_seen")
+
+
+def test_each_history_entry_stores_the_rows_tier_before_the_event(tbl):
+    ledger.put_recipient(tbl, NOTICE, recipient())
+    for tier, ev in (("sent", "SENT"), ("read", "RCS_READ"), ("delivered", "RCS_DELIVERED")):
+        ledger.record_event(tbl, env(tier, ev, mid=f"m-{ev}", ts=f"2026-10-26T12:00:{len(ev):02d}Z"))
+    history = ledger.get_recipient(tbl, NOTICE, "r-1")["tier_history"]
+    assert [(h["state"], h["row_state"], h["counted"]) for h in history] == [
+        ("sent", "none", True), ("read", "sent", True), ("delivered", "read", False)]

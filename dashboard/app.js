@@ -97,12 +97,13 @@
 
   function clockLabel(c) {
     if (c.sent_here) return joinNames([c.next_channel]) + " sent to this device · stage " + c.next_stage;
-    if (c.verdict) return "Ladder finished · " + endsText(c) + " · stage " + c.next_stage;
+    if (c.verdict) return ((c.unsent || []).length ? "No rung left" : "All rungs sent") + " · " + endsText(c) + " · stage " + c.next_stage;
     return "Next rung · " + joinNames([c.next_channel]) + " · stage " + c.next_stage;
   }
 
   function clockNote(c) {
     var tried = c.tried.length ? "No acknowledgment on " + joinNames(c.tried) + ". " : "";
+    if (c.verdict && (c.unsent || []).length) tried += "No send was recorded on " + joinNames(c.unsent) + ". ";
     if (c.verdict) return tried + (c.ends_as === "unreachable" ? "No rung is left; when the window ends the rule marks this device unreachable unless a delivery arrives."
       : "No rung is left; when the window ends the device stays there unless a tap arrives.");
     return tried + "When the window ends the rule sends " + joinNames([c.next_channel]) + ".";
@@ -245,11 +246,21 @@
     });
   }
 
+  // A reset notice must leave nothing of the old one on screen: cards, clocks, texts, bar, tiles, footer and report.
+  function clearNotice() {
+    clocks = []; clear($("live")); textsKey = null; renderTexts({});
+    clear($("bar")); clear($("legend")); clear($("channels"));
+    $("bar-label").textContent = ""; $("bar-count").textContent = ""; $("empty").hidden = true; $("footer-text").textContent = "";
+    $("start-btn").hidden = true; lastAck = 0;
+    if (reportTimer) { clearInterval(reportTimer); reportTimer = null; }
+    clearReport(); $("report-hint").textContent = "";
+  }
+
   function renderState(d) {
     if (d.status === "no_notice") {
       $("notice-title").textContent = "No notice seeded";
       $("status-chip").textContent = "empty";
-      clocks = []; clear($("live")); textsKey = null; renderTexts({}); // a reset notice must not leave a ticking card or old texts behind
+      clearNotice();
       return;
     }
     var defaults = Object.keys(d.text_sources || {}).filter(function (k) { return d.text_sources[k] === "default"; }).length;

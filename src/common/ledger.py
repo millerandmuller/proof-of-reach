@@ -204,6 +204,7 @@ def _apply(item: Dict[str, Any], envelope: Dict[str, Any], eid: str):
         "event": envelope["event"],
         "event_id": eid,
         "counted": counted and rank(tier) > rank(item["state"]),
+        "row_state": item["state"],  # the row's tier before this event: lets the history say "row already at ..." without moving later
         "is_bot": bool(envelope.get("is_bot", False)),
         "replayed": bool(envelope.get("replayed", False)),
     }
