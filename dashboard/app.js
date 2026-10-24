@@ -10,7 +10,7 @@
   var cfg = null, started = false, seen = {}, reportTimer = null, lastAck = 0, liveIds = [];
   var OVERDUE_AFTER_S = 120; // a stage over 2,000 recipients takes about 40 s; past this the schedule itself is late
   var SWEEP_S = 4;           // must match the clock-sweep duration in styles.css
-  var skewMs = 0, clocks = [], clocksPaused = false, textsKey = null, rawOpen = {};
+  var skewMs = 0, clocks = [], clocksPaused = false, textsKey = null, rawOpen = {}, reportEpoch = 0;
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -97,14 +97,18 @@
 
   function clockLabel(c) {
     if (c.sent_here) return joinNames([c.next_channel]) + " sent to this device · stage " + c.next_stage;
-    if (c.verdict) return ((c.unsent || []).length ? "No rung left" : "All rungs sent") + " · " + endsText(c) + " · stage " + c.next_stage;
+    if (c.verdict) {
+      var head = (c.unsent || []).length ? "No rung left" : "All rungs sent";
+      // a device that would end unreachable gets the next step, not that end state: nobody has failed yet
+      return head + " · " + (c.ends_as === "unreachable" ? "stage " + c.next_stage + " checks delivery" : endsText(c) + " · stage " + c.next_stage);
+    }
     return "Next rung · " + joinNames([c.next_channel]) + " · stage " + c.next_stage;
   }
 
   function clockNote(c) {
     var tried = c.tried.length ? "No acknowledgment on " + joinNames(c.tried) + ". " : "";
-    if (c.verdict && (c.unsent || []).length) tried += "No send was recorded on " + joinNames(c.unsent) + ". ";
-    if (c.verdict) return tried + (c.ends_as === "unreachable" ? "No rung is left; when the window ends the rule marks this device unreachable unless a delivery arrives."
+    if (c.verdict && (c.unsent || []).length) tried += "No successful send on " + joinNames(c.unsent) + ". ";
+    if (c.verdict) return tried + (c.ends_as === "unreachable" ? "No rung is left; when the window ends the rule checks whether anything was delivered."
       : "No rung is left; when the window ends the device stays there unless a tap arrives.");
     return tried + "When the window ends the rule sends " + joinNames([c.next_channel]) + ".";
   }
@@ -124,7 +128,7 @@
     if (state === "counting") {
       k.num.textContent = mmss(left);
       k.fill.style.width = Math.min(100, Math.max(0, 100 * (1 - left / c.window_seconds))) + "%";
-      k.due.textContent = "due " + clock(c.due_at) + " · window " + c.window_seconds + " s";
+      k.due.textContent = "due " + clock(c.due_at) + " · window " + c.window_seconds + " s · computed from the rule";
       k.note.textContent = clockNote(c);
       return;
     }
@@ -287,6 +291,7 @@
   }
 
   function clearReport() {
+    reportEpoch++; // a /report response that started before this clear is stale and is dropped when it returns
     ["rep-headline", "rep-breakdown", "rep-last", "rep-more"].forEach(function (id) { $(id).textContent = ""; });
     clear($("rep-exceptions").tBodies[0]); clear($("rep-reasons")); clear($("rep-themes"));
   }
@@ -323,7 +328,8 @@
   }
 
   function loadReport() {
-    api("/report").then(function (res) { renderReport(res.body); }).catch(function () { /* the state poll shows the banner */ });
+    var epoch = reportEpoch;
+    api("/report").then(function (res) { if (epoch === reportEpoch) renderReport(res.body); }).catch(function () { /* the state poll shows the banner */ });
   }
 
   function poll() {

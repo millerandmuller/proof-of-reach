@@ -15,12 +15,20 @@ from engine import ladder
 ISO = "%Y-%m-%dT%H:%M:%SZ"
 
 
+def _refused_channels(item: Dict[str, Any]) -> set:
+    """Channels whose latest recorded event is a failure (for example Meta accepts the send, then reports 131031)."""
+    latest: Dict[Any, Any] = {}
+    for entry in item.get("tier_history", []):
+        latest[entry.get("channel")] = entry.get("state")
+    return {channel for channel, state in latest.items() if state == "failed"}
+
+
 def next_step(item: Dict[str, Any], meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """The device's next scheduled step, or None when no clock applies (not running, acknowledged, or already unreachable).
 
     `verdict` is true when no rung is left for this device: the next stage only closes its ladder, and
     `ends_as` names the result the engine's own rule gives it ("unreachable", or the tier it stays at).
-    `tried` lists the channels where a send was recorded for this device; `unsent` (verdict only) the rungs that never were.
+    `tried` lists the channels where a send was recorded and not refused; `unsent` (verdict only) the rungs without one.
     `sent_here` is true while the stage is still running over other recipients but this device's own send
     is already recorded. `due_at` is None until stage 1 has been recorded, which the dashboard shows as "sending".
     """
@@ -32,7 +40,9 @@ def next_step(item: Dict[str, Any], meta: Dict[str, Any]) -> Optional[Dict[str, 
     stage_at = _parse(meta.get("stage_at")) if recorded else None
     channel = ladder.rung_for(item, stage)
     caps = item.get("channel_caps", [])
-    sent = [ch for ch in caps if ch in (item.get("by_channel") or {})]  # a recorded send, not the stage counter: a failed send is not "tried"
+    refused = _refused_channels(item)
+    # a recorded send the provider has not refused, not the stage counter: a failed or refused send is not "tried"
+    sent = [ch for ch in caps if ch in (item.get("by_channel") or {}) and ch not in refused]
     return {
         "next_stage": stage,
         "next_channel": channel,

@@ -84,3 +84,23 @@ def test_tried_follows_the_recorded_sends_not_the_stage_counter():
 def test_at_the_end_of_the_ladder_a_rung_with_no_recorded_send_is_named():
     step = clock.next_step(device("delivered", sent=["rcs", "email"]), meta(stage=3))
     assert step["verdict"] is True and step["tried"] == ["rcs", "email"] and step["unsent"] == ["whatsapp"]
+
+
+def refused(channel, *states):
+    """History of one channel as the ledger records it, oldest first."""
+    return [{"channel": channel, "state": state} for state in states]
+
+
+def test_a_send_the_provider_accepted_and_then_refused_is_not_tried():
+    # Meta accepts the WhatsApp send (by_channel keeps "sent"), then reports 131031: a failed event on that channel
+    item = {**device("delivered", sent=["rcs", "whatsapp"]), "tier_history": refused("rcs", "sent", "delivered") + refused("whatsapp", "sent", "failed")}
+    assert clock.next_step(item, meta(stage=2))["tried"] == ["rcs"]
+    ended = clock.next_step({**item, "channel_caps": ["rcs", "whatsapp"]}, meta(stage=2))
+    assert ended["verdict"] is True and ended["tried"] == ["rcs"] and ended["unsent"] == ["whatsapp"]
+
+
+def test_only_the_latest_event_on_a_channel_decides_whether_it_was_refused():
+    recovered = {**device("delivered", sent=["rcs", "whatsapp"]), "tier_history": refused("whatsapp", "failed", "delivered")}
+    assert clock.next_step(recovered, meta(stage=2))["tried"] == ["rcs", "whatsapp"]
+    other_channel = {**device("delivered", sent=["rcs", "whatsapp"]), "tier_history": refused("email", "failed")}
+    assert clock.next_step(other_channel, meta(stage=2))["tried"] == ["rcs", "whatsapp"]
