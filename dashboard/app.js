@@ -110,6 +110,7 @@
         card.appendChild(det);
       }
       if (dev.unreachable_reason) card.appendChild(el("p", "hint", dev.unreachable_reason));
+      if (dev.feedback_status) card.appendChild(el("p", "hint", dev.feedback_status === "sent" ? "PutMessageFeedback: sent" : "PutMessageFeedback: failed, AWS returned " + dev.feedback_status + " (attempted once, not retried)"));
       root.appendChild(card);
     });
   }

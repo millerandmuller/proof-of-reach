@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+from botocore.exceptions import ClientError
 
 from common import feedback, ledger
 from common.tiers import build_postback
@@ -88,12 +89,57 @@ def test_rcs_tap_acknowledges_and_closes_loop(row, monkeypatch):
     send(row, "rcs", "rcs-1")
     rcs_twoway.handler(sns(postback_message()))
     item = ledger.get_recipient(row, NOTICE, RID)
-    assert item["state"] == "acknowledged" and item["feedback_sent"] is True
+    assert item["state"] == "acknowledged" and item["feedback_sent"] is True and item["feedback_status"] == "sent"
     assert calls == [{"MessageId": "rcs-1", "MessageFeedbackStatus": "RECEIVED"}]
     # second tap: logged, not counted, no second feedback call
     rcs_twoway.handler(sns(postback_message(), ts="2026-10-26T12:01:50.000Z", mid="sns-2"))
     assert len(calls) == 1
     assert [h["counted"] for h in ledger.get_recipient(row, NOTICE, RID)["tier_history"] if h["state"] == "acknowledged"] == [True, False]
+
+
+def aws_error(code):
+    return ClientError({"Error": {"Code": code, "Message": "Resource Not Found"}}, "PutMessageFeedback")
+
+
+def test_feedback_failure_is_recorded_on_the_row_and_never_raises(row, monkeypatch):
+    calls = []
+
+    class FailingClient:
+        def put_message_feedback(self, **kw):
+            calls.append(kw)
+            raise aws_error("ResourceNotFoundException")
+
+    monkeypatch.setattr(feedback.boto3, "client", lambda *a, **k: FailingClient())
+    send(row, "rcs", "rcs-1")
+    rcs_twoway.handler(sns(postback_message()))  # must not raise: a raise would fail the batch and the retry would skip the call as a duplicate
+    item = ledger.get_recipient(row, NOTICE, RID)
+    assert item["state"] == "acknowledged" and item["feedback_sent"] is False
+    assert item["feedback_status"] == "ResourceNotFoundException"
+    # redelivery of the same message (duplicate) and a second tap: still exactly one call
+    rcs_twoway.handler(sns(postback_message()))
+    rcs_twoway.handler(sns(postback_message(), ts="2026-10-26T12:01:50.000Z", mid="sns-2"))
+    assert len(calls) == 1
+    assert ledger.get_recipient(row, NOTICE, RID)["feedback_status"] == "ResourceNotFoundException"
+
+
+def test_unexpected_error_in_the_loop_closer_does_not_fail_the_batch(row, monkeypatch):
+    def boom(tbl, item):
+        raise RuntimeError("ledger contention")
+
+    monkeypatch.setattr(feedback, "close_loop", boom)
+    send(row, "rcs", "rcs-1")
+    result = rcs_twoway.handler(sns(postback_message()))
+    assert not result.get("batchItemFailures")
+    assert ledger.get_recipient(row, NOTICE, RID)["state"] == "acknowledged"
+
+
+def test_replay_events_are_counted_but_the_simulated_send_is_not(row):
+    base = {"notice_id": NOTICE, "recipient_id": RID, "channel": "rcs", "provider_message_id": "replay-rcs-1",
+            "raw": {"MessageId": "replay-rcs-1"}, "replayed": True}
+    ledger.record_event(row, {**base, "event": "SENT", "tier": "sent", "provider_timestamp": now_iso(), "stage": 1})  # the engine's simulated send
+    assert ledger.get_recipient(row, NOTICE, RID)["replay_events"] == 0
+    ledger.record_event(row, {**base, "event": "RCS_DELIVERED", "tier": "delivered", "provider_timestamp": now_iso()})
+    assert ledger.get_recipient(row, NOTICE, RID)["replay_events"] == 1
 
 
 def test_feedback_skipped_outside_one_hour_window(row, monkeypatch):

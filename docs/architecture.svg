@@ -22,7 +22,7 @@
   </g>
   <text x="46" y="148" font-weight="700">End User Messaging RCS</text>
   <text x="46" y="170">SendRcsMessage  rich card + Reply</text>
-  <text x="46" y="192" fill="#14774a">PutMessageFeedback  (loop closer)</text>
+  <text x="46" y="192" fill="#14774a">PutMessageFeedback  (attempted once, RCS)</text>
   <text x="46" y="254" font-weight="700">End User Messaging Social</text>
   <text x="46" y="276">SendWhatsAppMessage  reply button</text>
   <text x="46" y="298" fill="#55606b">WhatsApp Business Account</text>
@@ -105,7 +105,7 @@
   <text x="300" y="640" fill="#55606b">engine and start call the writer for text</text>
   <!-- feedback loop -->
   <path d="M1000 186 L1030 186 L1030 88 L130 88 L130 118" stroke="#14774a" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#g)"/>
-  <text x="400" y="80" fill="#14774a">PutMessageFeedback RECEIVED after a tap (never shown as proof)</text>
+  <text x="400" y="80" fill="#14774a">PutMessageFeedback attempted once after a tap; live take: AWS returned ResourceNotFound, so the loop does not close for RCS</text>
 
   <rect x="30" y="740" width="1340" height="56" rx="8" fill="#17202a"/>
   <text x="50" y="774" fill="#f6f4ef">Demo footer: 3 live devices, the rest replayed through these same topics and consumers. Replayed events are labelled simulated until captured from the live pipeline.</text>

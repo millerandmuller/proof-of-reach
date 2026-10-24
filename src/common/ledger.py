@@ -63,6 +63,8 @@ def put_recipient(tbl, notice_id: str, recipient: Dict[str, Any]) -> None:
         "unreachable_reason": None,
         "live_device": bool(recipient.get("live_device", False)),
         "feedback_sent": False,
+        "feedback_status": None,  # outcome of the one PutMessageFeedback attempt: "sent" or the AWS error code
+        "replay_events": 0,  # provider events that came from the replay (not the engine's simulated send)
         "version": 0,
         # contact data is kept for the senders; the read API never returns it
         "phone": recipient.get("phone", ""),
@@ -216,6 +218,8 @@ def _apply(item: Dict[str, Any], envelope: Dict[str, Any], eid: str):
         updated["unreachable_reason"] = None
     if envelope.get("stage"):
         updated["stage"] = max(int(item.get("stage", 0)), int(envelope["stage"]))
+    if envelope.get("replayed") and not envelope.get("stage"):  # the engine's simulated send also carries replayed=True, but it is a send, not a replay
+        updated["replay_events"] = int(item.get("replay_events", 0)) + 1
     updated["recent_event_ids"] = [h["event_id"] for h in updated["tier_history"] if h.get("event_id")][-3:]  # lets the report skip the full history
     updated["version"] = item["version"] + 1
     return updated, counted
@@ -250,8 +254,9 @@ def record_failure(tbl, notice_id: str, recipient_id: str, channel: str, event: 
     _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "last_failure": failure})
 
 
-def mark_feedback_sent(tbl, notice_id: str, recipient_id: str) -> None:
-    _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "feedback_sent": True})
+def mark_feedback(tbl, notice_id: str, recipient_id: str, status: str) -> None:
+    """Record the outcome of the single PutMessageFeedback attempt: "sent" or the AWS error code."""
+    _update_recipient(tbl, notice_id, recipient_id, lambda item: {**item, "feedback_status": status, "feedback_sent": status == "sent"})
 
 
 def mark_unreachable(tbl, notice_id: str, recipient_id: str, reason: str) -> bool:

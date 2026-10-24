@@ -3,10 +3,13 @@
 All four consumers call `process`; the replay path goes through the same consumers,
 so there is one code path for live and replayed events.
 """
+import logging
 from typing import Any, Callable, Dict, Optional
 
 from common import feedback, ledger
 from common.tiers import UNPARSED
+
+log = logging.getLogger(__name__)
 
 
 def _resolve(tbl, env: Dict[str, Any]) -> bool:
@@ -54,5 +57,9 @@ def process(tbl, env: Dict[str, Any], close_loop: Optional[Callable] = None) -> 
                               env.get("failure_reason", env["event"]), env.get("provider_timestamp", ""))
     elif env["tier"] == "acknowledged" and env["channel"] == "rcs" and result["status"] == "applied":
         item = ledger.get_recipient(tbl, env["notice_id"], env["recipient_id"])
-        result["feedback"] = close_loop(tbl, item)
+        try:
+            result["feedback"] = close_loop(tbl, item)
+        except Exception:  # the acknowledgment is committed: a failing side call must not fail the batch, a redelivery would skip it as a duplicate
+            log.exception("loop closer failed after the acknowledgment for %s/%s", env["notice_id"], env["recipient_id"])
+            result["feedback"] = "failed:unrecorded"
     return result

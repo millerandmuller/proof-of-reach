@@ -66,8 +66,14 @@ def bar_label(counts: Dict[str, int], total: int) -> str:
 def footer(items: List[Dict[str, Any]], meta: Dict[str, Any]) -> str:
     total = len(items)
     live = sum(1 for i in items if i.get("live_device"))
-    source = "recorded events" if meta.get("replay_provenance") == "recorded" else "simulated events"
-    return f"{total:,} recipients · {live} live devices · {total - live:,} replayed from {source}"
+    not_live = total - live
+    replayed = sum(1 for i in items if not i.get("live_device") and i.get("replay_events", 0) > 0)
+    kind = "recorded" if meta.get("replay_provenance") == "recorded" else "simulated"
+    head = f"{total:,} recipients · {live} live devices · "
+    if replayed == 0:
+        return head + f"{not_live:,} {kind}, replay not run"  # the split is planned; nothing was replayed yet
+    tail = f" · {not_live - replayed:,} not yet replayed" if replayed < not_live else ""
+    return head + f"{replayed:,} replayed from {kind} events" + tail
 
 
 def human_duration(seconds: float) -> str:

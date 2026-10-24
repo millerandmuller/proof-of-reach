@@ -43,7 +43,7 @@ provider event id and the raw payload.
 | Service | API call | File and line |
 |---|---|---|
 | End User Messaging RCS | `SendRcsMessage` | `src/senders/rcs.py:29` |
-| End User Messaging RCS | `PutMessageFeedback` | `src/common/feedback.py:49` |
+| End User Messaging RCS | `PutMessageFeedback` | `src/common/feedback.py:61` |
 | End User Messaging Social | `SendWhatsAppMessage` | `src/senders/whatsapp.py:48` |
 | Amazon SES v2 | `SendEmail` | `src/senders/email.py:24` |
 | AgentCore Runtime | `InvokeAgentRuntime` | `src/agent/client.py` (`invoke_runtime`) |
@@ -96,7 +96,7 @@ publishes provider events, in the real payload shapes, to the same SNS topics, s
 consumers and ledger code process them. Nothing writes to the ledger directly.
 
 - The dashboard footer always states the split, for example "2,000 recipients · 3 live devices ·
-  1,997 replayed from simulated events".
+  1,997 simulated, replay not run" until replay events exist, then "1,997 replayed from simulated events".
 - The replay corpus is `simulated` (payload shapes from the AWS documentation, planned outcomes that
   match the demo report). The footer says "recorded events" only when the corpus provenance is
   `recorded`.
@@ -123,8 +123,12 @@ must reproduce the planned outcomes.
   `WHATSAPP_TEMPLATE_NAME` to an approved template with one quick reply button.
 - A new AWS account can have a Lambda limit of 10 concurrent executions. The consumers are
   buffered through SQS for that reason; request a higher quota for production volumes.
-- `PutMessageFeedback` must happen within one hour of the send; later taps are recorded and the call
-  is skipped.
+- `PutMessageFeedback` does not close the loop for RCS. On the live take AWS answered
+  `ResourceNotFoundException` for a real RCS message id (the same result by hand 20 minutes after a send made with
+  `MessageFeedbackEnabled=True`). The call is attempted once per recipient after the acknowledgment is stored, the
+  outcome (`sent` or the AWS error code) is kept on the recipient row as `feedback_status` and shown on the live
+  device card, and it is never retried. The acknowledgment itself does not depend on it. The call is only attempted
+  within one hour of the send; later taps are recorded and the call is skipped.
 
 ## AI disclosure
 
