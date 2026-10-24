@@ -18,8 +18,10 @@ ISO = "%Y-%m-%dT%H:%M:%SZ"
 def next_step(item: Dict[str, Any], meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """The device's next scheduled step, or None when no clock applies (not running, acknowledged, or already unreachable).
 
-    `verdict` is true when no rung is left for this device: the next stage only gives the verdict.
-    `due_at` is None until stage 1 has been recorded, which the dashboard shows as "sending".
+    `verdict` is true when no rung is left for this device: the next stage only closes its ladder, and
+    `ends_as` names the result the engine's own rule gives it ("unreachable", or the tier it stays at).
+    `sent_here` is true while the stage is still running over other recipients but this device's own send
+    is already recorded. `due_at` is None until stage 1 has been recorded, which the dashboard shows as "sending".
     """
     if meta.get("status") != "running" or item["state"] in ("acknowledged", UNREACHABLE):
         return None
@@ -32,6 +34,8 @@ def next_step(item: Dict[str, Any], meta: Dict[str, Any]) -> Optional[Dict[str, 
         "next_stage": stage,
         "next_channel": channel,
         "verdict": channel is None,
+        "ends_as": (UNREACHABLE if ladder.needs_verdict(item, stage) else item["state"]) if channel is None else None,
+        "sent_here": channel is not None and int(item.get("stage", 0)) >= stage,
         "tried": item.get("channel_caps", [])[:recorded],
         "window_seconds": window,
         "due_at": (stage_at + timedelta(seconds=window)).strftime(ISO) if stage_at else None,

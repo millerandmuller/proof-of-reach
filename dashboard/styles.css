@@ -108,6 +108,9 @@ footer.honesty { position: fixed; left: 0; right: 0; bottom: 0; display: flex; j
 .clock-note { margin: 12px 0 0; min-height: 42px; font-size: 14px; color: var(--muted); } /* two lines reserved: the copy changes at zero and must not move the card */
 .clock.sending .clock-track i { width: 28%; transition: none; animation: clock-sweep 4s linear infinite; }
 .clock.late .clock-track i { width: 100%; background: var(--muted); }
+.clock.paused { opacity: .5; }
+.clock.paused .clock-track i { animation: none; }
+.chip-status { display: inline-block; margin-left: 8px; padding: 1px 8px; border: 1px solid var(--ink); color: var(--ink); font-size: 12px; line-height: 16px; letter-spacing: .08em; text-transform: uppercase; }
 @keyframes clock-sweep { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
 
 .texts { margin-bottom: 24px; padding-top: 24px; border-top: 1px solid var(--line); min-height: 232px; } /* reserved so Start does not push the panels below it */

@@ -87,3 +87,24 @@ def test_state_carries_the_rule_clock_and_the_checked_texts_once_running(tbl):
     assert step["next_stage"] == 2 and step["due_at"] == "2026-10-26T12:01:30Z" and step["tried"] == ["rcs"]
     assert body["texts"]["consumer"]["rcs"]["problems"] == [] and body["texts"]["dealer"]["email"]["source"] == "default"
     assert "+1" not in resp["body"] and "a@x.test" not in resp["body"]
+
+
+def test_state_history_carries_one_note_per_cause_and_the_whatsapp_status_chip(tbl):
+    seed(tbl)
+
+    def event(channel, name, tier, mid, raw, **kw):
+        ledger.record_event(tbl, {"notice_id": N, "recipient_id": "live", "channel": channel, "event": name, "tier": tier,
+                                  "provider_message_id": mid, "provider_timestamp": f"2026-10-26T12:00:{len(mid):02d}Z", "raw": raw, **kw})
+
+    event("rcs", "RCS_READ", "read", "m-read", {"eventType": "RCS_READ"})
+    event("rcs", "RCS_DELIVERED", "delivered", "m-late", {"eventType": "RCS_DELIVERED"})  # below the row's tier
+    event("rcs", "RCS_READ", "read", "m-twice", {"eventType": "RCS_READ"})  # same tier again
+    event("email", "Open", "read", "m-bot", {"eventType": "Open"}, is_bot=True)
+    entry = {"changes": [{"value": {"statuses": [{"id": "w", "status": "failed", "errors": [{"code": 131031}]}]}}]}
+    event("whatsapp", "failed", "failed", "w-failed", {"whatsAppWebhookEntry": json.dumps(entry)})
+    body = json.loads(call("GET", "/state", notice=N)["body"])
+    notes = {h["provider_message_id"]: h["note"] for h in body["live"][0]["history"]}
+    assert notes == {"m-read": "", "m-late": "row already at read", "m-twice": "already at this tier",
+                     "m-bot": "bot-flagged, not counted", "w-failed": ""}
+    chips = {h["provider_message_id"]: h["chip"] for h in body["live"][0]["history"]}
+    assert chips["w-failed"] == "failed · error 131031" and chips["m-read"] is None

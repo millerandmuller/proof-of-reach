@@ -214,6 +214,8 @@ def _apply(item: Dict[str, Any], envelope: Dict[str, Any], eid: str):
     if counted and rank(tier) > rank(by_channel.get(envelope["channel"], "")):
         by_channel[envelope["channel"]] = tier
     updated["by_channel"] = by_channel
+    if counted and tier == "read":  # remembered per channel: a later click must not erase the evidence of a real open
+        updated["read_seen"] = sorted(set(item.get("read_seen", [])) | {envelope["channel"]})
     if new_state != UNREACHABLE:
         updated["unreachable_reason"] = None
     if envelope.get("stage"):

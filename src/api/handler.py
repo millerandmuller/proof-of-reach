@@ -11,15 +11,15 @@ from typing import Any, Dict, List
 
 from agent import client as agent_client
 from agent import notice_text
-from api import clock, redact, report
+from api import clock, history, redact, report
 from common import ledger
 from engine import start_notice
 
 DEFAULT_NOTICE = os.environ.get("DEFAULT_NOTICE_ID", "HX200-2026-10")
 LIVE_EVENTS = 6
-STATE_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg, replay_events"
+STATE_PROJECTION = "recipient_id, #s, by_channel, read_seen, live_device, #seg, replay_events"
 STATE_NAMES = {"#s": "state", "#seg": "segment"}  # both are DynamoDB reserved words
-REPORT_PROJECTION = "recipient_id, #s, by_channel, live_device, #seg, unreachable_reason, recent_event_ids, replay_events"
+REPORT_PROJECTION = "recipient_id, #s, by_channel, read_seen, live_device, #seg, unreachable_reason, recent_event_ids, replay_events"
 START_TOKEN = os.environ.get("START_TOKEN", "")
 SUMMARY_RETRY_SECONDS = 60
 EXCEPTION_ROWS = 50  # the report lists the first rows; the full list stays in the ledger
@@ -43,13 +43,15 @@ def _live_rows(tbl, notice_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]
         item = ledger.get_recipient(tbl, notice_id, rid)
         if item is None:
             continue
-        history = []
+        events = []
         for h in item.get("tier_history", [])[-LIVE_EVENTS:]:
             ev = tbl.get_item(Key={"pk": ledger.notice_pk(notice_id), "sk": f"event#{h['event_id']}"}).get("Item") if h.get("event_id") else None
-            history.append({**h, "provider_message_id": redact.mask_id(h.get("provider_message_id")), "raw": redact.public_raw(json.loads(ev["raw_json"])) if ev else None})
+            raw = redact.public_raw(json.loads(ev["raw_json"])) if ev else None
+            events.append({**h, "provider_message_id": redact.mask_id(h.get("provider_message_id")), "raw": raw,
+                           "note": history.event_note(h, item["state"]), "chip": history.whatsapp_status_chip(h.get("channel"), raw)})
         rows.append({"recipient_id": rid, "label": meta.get("live_labels", {}).get(rid, rid), "state": item["state"],
                      "by_channel": item.get("by_channel", {}), "unreachable_reason": item.get("unreachable_reason"),
-                     "feedback_status": item.get("feedback_status"), "history": history,
+                     "feedback_status": item.get("feedback_status"), "history": events,
                      "clock": clock.next_step(item, meta)})
     return rows
 

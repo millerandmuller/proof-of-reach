@@ -167,3 +167,16 @@ def test_postback_survives_percent_encoding_by_mail_clients():
     from urllib.parse import quote
     link = "https://d.example/ack.html?p=" + quote(build_postback(NOTICE, "r-9"), safe="")
     assert "%3A" in link and parse_postback(link) == (NOTICE, "r-9")
+
+
+def test_a_real_open_is_remembered_after_a_later_click_but_a_bot_open_is_not(tbl):
+    ledger.put_recipient(tbl, NOTICE, recipient("opened"))
+    ledger.put_recipient(tbl, NOTICE, recipient("botted"))
+    for rid in ("opened", "botted"):
+        ledger.record_event(tbl, env("delivered", "Delivery", channel="email", rid=rid, mid=f"d-{rid}"))
+    ledger.record_event(tbl, env("read", "Open", channel="email", rid="opened", mid="o1"))
+    ledger.record_event(tbl, env("read", "Open", channel="email", rid="botted", mid="o2", is_bot=True))
+    for rid in ("opened", "botted"):
+        ledger.record_event(tbl, env("acknowledged", "Click", channel="email", rid=rid, mid=f"c-{rid}"))
+    assert ledger.get_recipient(tbl, NOTICE, "opened")["read_seen"] == ["email"]
+    assert not ledger.get_recipient(tbl, NOTICE, "botted").get("read_seen")

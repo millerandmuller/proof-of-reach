@@ -10,7 +10,7 @@
   var cfg = null, started = false, seen = {}, reportTimer = null, lastAck = 0, liveIds = [];
   var OVERDUE_AFTER_S = 120; // a stage over 2,000 recipients takes about 40 s; past this the schedule itself is late
   var SWEEP_S = 4;           // must match the clock-sweep duration in styles.css
-  var skewMs = 0, clocks = [], textsKey = null;
+  var skewMs = 0, clocks = [], clocksPaused = false, textsKey = null, rawOpen = {};
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -92,14 +92,29 @@
     return names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names.join("");
   }
 
+  // What the device's ladder ends as when its window runs out, from the engine's own rule (clock.ends_as).
+  function endsText(c) { return c.ends_as === "unreachable" ? "unreachable if nothing is delivered" : "still " + (STATE_TEXT[c.ends_as] || c.ends_as); }
+
+  function clockLabel(c) {
+    if (c.sent_here) return joinNames([c.next_channel]) + " sent to this device · stage " + c.next_stage;
+    if (c.verdict) return "Ladder finished · " + endsText(c) + " · stage " + c.next_stage;
+    return "Next rung · " + joinNames([c.next_channel]) + " · stage " + c.next_stage;
+  }
+
   function clockNote(c) {
     var tried = c.tried.length ? "No acknowledgment on " + joinNames(c.tried) + ". " : "";
-    return tried + (c.verdict ? "No rung is left; when the window ends the rule records the verdict."
-      : "When the window ends the rule sends " + joinNames([c.next_channel]) + ".");
+    if (c.verdict) return tried + (c.ends_as === "unreachable" ? "No rung is left; when the window ends the rule marks this device unreachable unless a delivery arrives."
+      : "No rung is left; when the window ends the device stays there unless a tap arrives.");
+    return tried + "When the window ends the rule sends " + joinNames([c.next_channel]) + ".";
   }
 
   // One tick of one device clock: counting down, sending (due time passed), or late (the stage was never recorded).
   function tickClock(k) {
+    if (clocksPaused) {
+      k.root.className = "clock paused";
+      k.note.textContent = "No answer from the ledger. The clock is paused until it responds.";
+      return;
+    }
     var c = k.c, due = c.due_at ? Date.parse(c.due_at) : NaN;
     var left = isNaN(due) ? NaN : (due - serverNow()) / 1000;
     var state = isNaN(left) || left <= 0 ? "sending" : "counting";
@@ -113,6 +128,12 @@
       return;
     }
     k.fill.style.width = "";
+    if (c.sent_here) {
+      k.num.textContent = "sent";
+      k.due.textContent = "";
+      k.note.textContent = "Stage " + c.next_stage + " is still running over the other recipients. The next clock starts when it is recorded.";
+      return;
+    }
     if (state === "late") {
       k.num.textContent = "+" + mmss(-left);
       k.due.textContent = "was due " + clock(c.due_at);
@@ -128,7 +149,7 @@
 
   function buildClock(c) {
     var root = el("div", "clock");
-    root.appendChild(el("p", "clock-label", (c.verdict ? "Verdict" : "Next rung · " + joinNames([c.next_channel])) + " · stage " + c.next_stage));
+    root.appendChild(el("p", "clock-label", clockLabel(c)));
     var row = el("div", "clock-row"), num = el("span", "clock-num"), due = el("span", "clock-due");
     num.setAttribute("role", "timer");
     row.appendChild(num); row.appendChild(due); root.appendChild(row);
@@ -142,6 +163,18 @@
     return root;
   }
 
+  function rawDetails(recipientId, h, newest) {
+    var key = recipientId + ":" + (h.event_id || h.event);
+    var det = el("details", "raw");
+    det.open = key in rawOpen ? rawOpen[key] : newest;  // the card is rebuilt every poll: remember what the viewer opened or closed
+    var sum = el("summary", null, "raw event (" + h.event + ")");
+    sum.addEventListener("click", function () { rawOpen[key] = !det.open; });
+    if (h.chip) sum.appendChild(el("span", "chip-status", h.chip));
+    det.appendChild(sum);
+    det.appendChild(el("pre", "json", JSON.stringify(h.raw, null, 2)));
+    return det;
+  }
+
   function renderLive(d) {
     var root = $("live"); clear(root); clocks = [];
     if (!d.live || !d.live.length) { root.appendChild(el("p", "hint", "No live devices configured. Every recipient is replayed.")); return; }
@@ -152,26 +185,22 @@
       head.appendChild(el("span", "state " + dev.state, STATE_TEXT[dev.state] || dev.state));
       card.appendChild(head);
       if (dev.clock) card.appendChild(buildClock(dev.clock));
-      var latestRaw = null, ul = el("ul", "events");
+      var raws = [], ul = el("ul", "events");
       dev.history.slice().reverse().forEach(function (h) {
         var li = el("li");
         var key = dev.recipient_id + ":" + (h.event_id || h.event);
         if (!seen[key]) { seen[key] = true; if (started) li.className = "slide"; }
         li.appendChild(el("span", "when", clock(h.at)));
         var what = el("span", "what");
-        var label = h.event + " · " + h.channel + " · " + h.state + (h.counted === false ? (h.is_bot ? " (bot-flagged, not counted)" : " (already at this tier)") : "");
+        var label = h.event + " · " + h.channel + " · " + h.state + (h.note ? " (" + h.note + ")" : "");
         what.appendChild(el("b", null, label));
         if (h.provider_message_id) what.appendChild(el("small", null, "message id " + h.provider_message_id + (h.event_id ? " · event " + h.event_id.slice(0, 8) : "")));
         li.appendChild(what); ul.appendChild(li);
-        if (!latestRaw && h.raw) latestRaw = h;
+        if (h.raw) raws.push(h);
       });
       card.appendChild(ul);
-      if (latestRaw) {
-        var det = el("details", "raw"); det.open = true;
-        det.appendChild(el("summary", null, "raw event (" + latestRaw.event + ")"));
-        det.appendChild(el("pre", "json", JSON.stringify(latestRaw.raw, null, 2)));
-        card.appendChild(det);
-      }
+      // every stored payload stays listed (newest open, earlier ones closed); a status chip sits above each JSON, in its summary
+      raws.forEach(function (h, i) { card.appendChild(rawDetails(dev.recipient_id, h, i === 0)); });
       if (dev.unreachable_reason) card.appendChild(el("p", "hint", dev.unreachable_reason));
       if (dev.feedback_status) card.appendChild(el("p", "hint", dev.feedback_status === "sent" ? "PutMessageFeedback: sent" : (dev.feedback_status.indexOf("transport:") === 0 ? "PutMessageFeedback: failed, " + dev.feedback_status.slice(10) + " (no AWS response)" : "PutMessageFeedback: failed, AWS returned " + dev.feedback_status + " (attempted once, not retried)")));
       root.appendChild(card);
@@ -219,7 +248,9 @@
   function renderState(d) {
     if (d.status === "no_notice") {
       $("notice-title").textContent = "No notice seeded";
-      $("status-chip").textContent = "empty"; return;
+      $("status-chip").textContent = "empty";
+      clocks = []; clear($("live")); textsKey = null; renderTexts({}); // a reset notice must not leave a ticking card or old texts behind
+      return;
     }
     var defaults = Object.keys(d.text_sources || {}).filter(function (k) { return d.text_sources[k] === "default"; }).length;
     $("notice-title").textContent = (d.title || d.notice_id) + (defaults ? " · default text for " + defaults + " of " + Object.keys(d.text_sources).length + " messages" : "");
@@ -288,9 +319,11 @@
     api("/state").then(function (res) {
       if (res.status >= 300 || !res.body.status) throw new Error("bad response " + res.status);
       banner("");
+      clocksPaused = false;
       renderState(res.body);
     }).catch(function () {
       banner("Cannot reach the ledger. Showing the last known state; retrying.");
+      clocksPaused = true; tickClocks(); // a countdown against stale data would claim things the page cannot know
     });
   }
 

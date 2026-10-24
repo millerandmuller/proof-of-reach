@@ -80,9 +80,11 @@ def test_footer_with_the_real_corpus_has_no_tail_although_29_recipients_get_no_e
     assert "not yet replayed" not in report.footer(items, {})
 
 
-def test_email_click_counts_as_acknowledged_only_never_as_a_read_receipt():
-    items = [item("o", "read", {"email": "read"}), item("c", "acknowledged", {"email": "acknowledged"}),
+def test_email_click_alone_is_never_a_read_receipt_but_an_open_before_it_still_counts():
+    items = [item("o", "read", {"email": "read"}),
+             item("c", "acknowledged", {"email": "acknowledged"}),  # click only, no open recorded
+             {**item("oc", "acknowledged", {"email": "acknowledged"}), "read_seen": ["email"]},  # real open, then a click
              item("w", "acknowledged", {"whatsapp": "acknowledged"})]
     ch = report.channel_breakdown(items)
-    assert ch["email"] == {"sent": 2, "delivered": 2, "read": 1, "acknowledged": 1}
+    assert ch["email"] == {"sent": 3, "delivered": 3, "read": 2, "acknowledged": 2}
     assert ch["whatsapp"]["read"] == 1  # other channels keep the cumulative reading
