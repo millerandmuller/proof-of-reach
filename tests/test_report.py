@@ -78,3 +78,11 @@ def test_footer_with_the_real_corpus_has_no_tail_although_29_recipients_get_no_e
              for r in recipients]
     assert report.footer(items, {}) == "2,000 recipients · 3 live devices · 1,997 replayed from simulated events"
     assert "not yet replayed" not in report.footer(items, {})
+
+
+def test_email_click_counts_as_acknowledged_only_never_as_a_read_receipt():
+    items = [item("o", "read", {"email": "read"}), item("c", "acknowledged", {"email": "acknowledged"}),
+             item("w", "acknowledged", {"whatsapp": "acknowledged"})]
+    ch = report.channel_breakdown(items)
+    assert ch["email"] == {"sent": 2, "delivered": 2, "read": 1, "acknowledged": 1}
+    assert ch["whatsapp"]["read"] == 1  # other channels keep the cumulative reading

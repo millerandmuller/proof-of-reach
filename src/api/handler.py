@@ -10,7 +10,8 @@ import time
 from typing import Any, Dict, List
 
 from agent import client as agent_client
-from api import redact, report
+from agent import notice_text
+from api import clock, redact, report
 from common import ledger
 from engine import start_notice
 
@@ -48,8 +49,17 @@ def _live_rows(tbl, notice_id: str, meta: Dict[str, Any]) -> List[Dict[str, Any]
             history.append({**h, "provider_message_id": redact.mask_id(h.get("provider_message_id")), "raw": redact.public_raw(json.loads(ev["raw_json"])) if ev else None})
         rows.append({"recipient_id": rid, "label": meta.get("live_labels", {}).get(rid, rid), "state": item["state"],
                      "by_channel": item.get("by_channel", {}), "unreachable_reason": item.get("unreachable_reason"),
-                     "feedback_status": item.get("feedback_status"), "history": history})
+                     "feedback_status": item.get("feedback_status"), "history": history,
+                     "clock": clock.next_step(item, meta)})
     return rows
+
+
+def _public_texts(meta: Dict[str, Any]):
+    """The stored notice texts with the validator's verdict, or None before Start wrote them."""
+    texts, brief = meta.get("texts"), meta.get("brief")
+    if not isinstance(texts, dict) or not isinstance(brief, dict):
+        return None
+    return notice_text.check_texts(texts, brief, meta.get("text_sources") or {})
 
 
 def get_state(tbl, notice_id: str) -> Dict[str, Any]:
@@ -63,6 +73,8 @@ def get_state(tbl, notice_id: str) -> Dict[str, Any]:
         "title": meta.get("title"), "total": len(items), "counts": counts, "label": report.bar_label(counts, len(items)),
         "channels": report.channel_breakdown(items), "footer": report.footer(items, meta),
         "text_sources": meta.get("text_sources"), "live": _live_rows(tbl, notice_id, meta),
+        "texts": _public_texts(meta),
+        "server_time": ledger.now_iso(),  # the dashboard counts down against this clock, not the viewer's
     }
 
 

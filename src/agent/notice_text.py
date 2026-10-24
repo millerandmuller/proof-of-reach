@@ -91,6 +91,29 @@ def validate_texts(texts: Dict[str, Any], brief: Dict[str, str]) -> Dict[str, Li
     return out
 
 
+def check_texts(texts: Dict[str, Any], brief: Dict[str, str], sources: Dict[str, str]) -> Dict[str, Any]:
+    """Every stored text with the validator's verdict beside it, for the read API.
+
+    Shape: segment -> channel -> {title|subject, body, source, length, max, problems}. `problems` is
+    empty when the text passed; `source` is 'agent' or 'default' as recorded at Start.
+    """
+    problems = validate_texts(texts, brief)
+    out: Dict[str, Any] = {}
+    for segment in SEGMENTS:
+        out[segment] = {}
+        for channel in CHANNELS:
+            key = f"{segment}.{channel}"
+            raw = _channel(texts, segment, channel)
+            body = raw.get("body") if isinstance(raw.get("body"), str) else ""
+            entry: Dict[str, Any] = {"body": body, "source": sources.get(key, "default"),
+                                     "length": len(body), "max": MAX_BODY, "problems": problems.get(key, [])}
+            for field in ("title", "subject"):
+                if field in raw:
+                    entry[field] = str(raw[field])
+            out[segment][channel] = entry
+    return out
+
+
 def default_texts(brief: Dict[str, str]) -> Dict[str, Any]:
     """Stored fallback text. Satisfies the validator by construction; the UI marks it 'default text'."""
     core = f"{brief['product']}: {brief['hazard']}. Please {brief['action']}. Contact {brief['contact']}."

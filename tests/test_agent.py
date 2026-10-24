@@ -76,3 +76,22 @@ def test_client_without_runtime_arn_uses_defaults(monkeypatch):
     monkeypatch.setattr(config, "AGENT_RUNTIME_ARN", "")
     _, sources, e = agent_client.write_notice(BRIEF)
     assert set(sources.values()) == {"default"} and "AGENT_RUNTIME_ARN" in e
+
+
+def test_check_texts_pairs_each_text_with_the_validators_verdict():
+    texts, sources = nt.merge_with_defaults(model_reply("Just call us."), BRIEF)
+    checked = nt.check_texts(texts, BRIEF, sources)
+    rcs = checked["dealer"]["rcs"]
+    assert rcs["problems"] == [] and rcs["source"] == "agent" and rcs["length"] == len(rcs["body"]) and rcs["max"] == nt.MAX_BODY
+    assert rcs["title"] and checked["dealer"]["email"]["subject"]
+    assert checked["consumer"]["rcs"]["source"] == "default"  # the model's text failed, the stored default replaced it
+
+
+def test_check_texts_reports_problems_instead_of_hiding_a_bad_text():
+    bad = nt.default_texts(BRIEF)
+    bad["consumer"]["rcs"]["body"] = "Just call us!"
+    bad["consumer"]["whatsapp"] = {}
+    checked = nt.check_texts(bad, BRIEF, {})
+    assert "marketing wording" in checked["consumer"]["rcs"]["problems"]
+    assert checked["consumer"]["whatsapp"]["problems"] == ["missing body"] and checked["consumer"]["whatsapp"]["body"] == ""
+    assert checked["consumer"]["rcs"]["source"] == "default"  # unknown source is never reported as the agent

@@ -68,3 +68,22 @@ def test_report_endpoint_adds_up_and_summarizes_replies_once(tbl, monkeypatch):
 def test_unknown_route_and_missing_notice(tbl):
     assert call("GET", "/nope")["statusCode"] == 404
     assert json.loads(call("GET", "/state", notice="missing")["body"]) == {"status": "no_notice"}
+
+
+def test_state_before_start_has_no_texts_and_no_clock(tbl):
+    seed(tbl)
+    body = json.loads(call("GET", "/state", notice=N)["body"])
+    assert body["texts"] is None and body["live"][0]["clock"] is None and body["server_time"].endswith("Z")
+
+
+def test_state_carries_the_rule_clock_and_the_checked_texts_once_running(tbl):
+    seed(tbl)
+    texts, sources = handler.notice_text.merge_with_defaults({}, BRIEF)
+    ledger.update_meta(tbl, N, {"status": "running", "stage": 1, "stage_at": "2026-10-26T12:00:00Z", "window_seconds": 90,
+                                "texts": texts, "text_sources": sources})
+    resp = call("GET", "/state", notice=N)
+    body = json.loads(resp["body"])
+    step = body["live"][0]["clock"]
+    assert step["next_stage"] == 2 and step["due_at"] == "2026-10-26T12:01:30Z" and step["tried"] == ["rcs"]
+    assert body["texts"]["consumer"]["rcs"]["problems"] == [] and body["texts"]["dealer"]["email"]["source"] == "default"
+    assert "+1" not in resp["body"] and "a@x.test" not in resp["body"]

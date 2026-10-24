@@ -45,7 +45,9 @@ def channel_breakdown(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
             r = rank(best)
             out[ch]["sent"] += 1 if r >= 1 else 0
             out[ch]["delivered"] += 1 if r >= 2 else 0
-            out[ch]["read"] += 1 if r >= 3 else 0
+            # Email: a click is an acknowledgment and says nothing about a read receipt (an Open that is not a bot), so it
+            # counts as acknowledged only. by_channel keeps the best tier, so open-then-click also shows as acknowledged only.
+            out[ch]["read"] += 1 if (r == 3 if ch == "email" else r >= 3) else 0
             out[ch]["acknowledged"] += 1 if r >= 4 else 0
     return out
 

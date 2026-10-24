@@ -95,3 +95,47 @@ table.exceptions td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--lin
 footer.honesty { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 12px 32px; background: var(--ink); color: var(--bg); font-size: 15px; font-variant-numeric: tabular-nums; }
 .brand-foot { opacity: .7; letter-spacing: .08em; }
 @media (max-width: 900px) { .grid, .report-cols { grid-template-columns: 1fr; } .bar-label { font-size: 30px; } header.top { flex-wrap: wrap; padding: 12px 16px; } main { padding: 20px 16px 0; } footer.honesty { padding: 10px 16px; font-size: 13px; } }
+
+/* Rule clock on a live device card and the notice text panel.
+   New elements only: square corners, hairline rules, no shadows, one moving element per block, tier colours untouched. */
+.clock-label, .text-seg, .text-more summary { font-size: 12px; line-height: 16px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.clock { margin: 12px 0 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.clock-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-top: 4px; }
+.clock-num { font-size: 48px; line-height: 56px; font-weight: 300; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.clock-due { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.clock-track { height: 2px; margin-top: 8px; background: var(--line); overflow: hidden; }
+.clock-track i { display: block; width: 0; height: 100%; background: var(--ink); transition: width 1s linear; }
+.clock-note { margin: 12px 0 0; min-height: 42px; font-size: 14px; color: var(--muted); } /* two lines reserved: the copy changes at zero and must not move the card */
+.clock.sending .clock-track i { width: 28%; transition: none; animation: clock-sweep 4s linear infinite; }
+.clock.late .clock-track i { width: 100%; background: var(--muted); }
+@keyframes clock-sweep { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
+
+.texts { margin-bottom: 24px; padding-top: 24px; border-top: 1px solid var(--line); min-height: 232px; } /* reserved so Start does not push the panels below it */
+.texts-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.texts-body { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 16px; }
+.texts-body > * { animation: texts-in .8s cubic-bezier(.19, 1, .22, 1); }
+@keyframes texts-in { from { opacity: 0; } to { opacity: 1; } }
+.texts-empty { margin: 0; max-width: 60ch; color: var(--muted); }
+.text-col + .text-col { padding-left: 32px; border-left: 1px solid var(--line); }
+.text-title { margin: 8px 0 4px; font-size: 24px; line-height: 32px; font-weight: 300; }
+.text-body { margin: 0; max-width: 60ch; font-size: 16px; }
+.stamp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 12px 0 0; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.stamp-verdict { padding: 4px 8px; border: 1px solid var(--ink); letter-spacing: .08em; text-transform: uppercase; }
+.stamp.fail .stamp-verdict { background: var(--ink); color: var(--bg); }
+.text-source { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.text-more { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.text-more summary { cursor: pointer; transition: color .3s ease; }
+.text-more summary:hover { color: var(--ink); }
+.text-more summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.text-more .text-item { margin-top: 16px; }
+.text-item .text-seg { margin-bottom: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .texts-body > *, .clock.sending .clock-track i { animation: none; }
+  .clock-track i { transition: none; }
+  .clock.sending .clock-track i { width: 100%; opacity: .35; }
+}
+@media (max-width: 900px) {
+  .texts-body { grid-template-columns: 1fr; }
+  .text-col + .text-col { padding-left: 0; border-left: 0; }
+  .clock-num { font-size: 40px; }
+}
