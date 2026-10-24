@@ -110,7 +110,7 @@
         card.appendChild(det);
       }
       if (dev.unreachable_reason) card.appendChild(el("p", "hint", dev.unreachable_reason));
-      if (dev.feedback_status) card.appendChild(el("p", "hint", dev.feedback_status === "sent" ? "PutMessageFeedback: sent" : "PutMessageFeedback: failed, AWS returned " + dev.feedback_status + " (attempted once, not retried)"));
+      if (dev.feedback_status) card.appendChild(el("p", "hint", dev.feedback_status === "sent" ? "PutMessageFeedback: sent" : (dev.feedback_status.indexOf("transport:") === 0 ? "PutMessageFeedback: failed, " + dev.feedback_status.slice(10) + " (no AWS response)" : "PutMessageFeedback: failed, AWS returned " + dev.feedback_status + " (attempted once, not retried)")));
       root.appendChild(card);
     });
   }

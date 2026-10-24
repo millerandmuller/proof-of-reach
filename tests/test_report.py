@@ -64,4 +64,17 @@ def test_footer_after_replay_and_while_partly_replayed():
     full = [item("a", "acknowledged", live=True)] + [item(c, "read", replay_events=1) for c in "bcde"]
     assert report.footer(full, {}) == "5 recipients · 1 live devices · 4 replayed from simulated events"
     partial = [item("a", "acknowledged", live=True), item("b", "read", replay_events=3)] + [item(c, "sent") for c in "cde"]
-    assert report.footer(partial, {}) == "5 recipients · 1 live devices · 1 replayed from simulated events · 3 not yet replayed"
+    assert report.footer(partial, {}) == "5 recipients · 1 live devices · 4 replayed from simulated events"  # no tail while the replay runs
+
+
+def test_footer_with_the_real_corpus_has_no_tail_although_29_recipients_get_no_events():
+    from seed import corpus  # the real seed: 2,000 recipients, 3 live, 29 of the 1,997 replayed ones planned silent
+    recipients = corpus.build_recipients(2000, [{"recipient_id": f"live-{i}", "live_device": True} for i in range(3)])
+    replayed = [r for r in recipients if not r["live_device"]]
+    plan = corpus.plan_outcomes(replayed)
+    silent = {r["recipient_id"] for r in replayed if not corpus.caps_of(r) or plan[r["recipient_id"]]["silent"]}
+    assert len(silent) == 29
+    items = [item(r["recipient_id"], "none", live=r["live_device"], replay_events=0 if r["recipient_id"] in silent or r["live_device"] else 1)
+             for r in recipients]
+    assert report.footer(items, {}) == "2,000 recipients · 3 live devices · 1,997 replayed from simulated events"
+    assert "not yet replayed" not in report.footer(items, {})

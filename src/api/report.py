@@ -72,8 +72,8 @@ def footer(items: List[Dict[str, Any]], meta: Dict[str, Any]) -> str:
     head = f"{total:,} recipients · {live} live devices · "
     if replayed == 0:
         return head + f"{not_live:,} {kind}, replay not run"  # the split is planned; nothing was replayed yet
-    tail = f" · {not_live - replayed:,} not yet replayed" if replayed < not_live else ""
-    return head + f"{replayed:,} replayed from {kind} events" + tail
+    # no "not yet replayed" tail: some replayed recipients get no events by design, so that count never reaches zero
+    return head + f"{not_live:,} replayed from {kind} events"
 
 
 def human_duration(seconds: float) -> str:

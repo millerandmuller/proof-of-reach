@@ -60,7 +60,7 @@ def close_loop(tbl, item: Dict[str, Any], now: Optional[datetime] = None, client
     try:
         client.put_message_feedback(MessageId=entry["provider_message_id"], MessageFeedbackStatus="RECEIVED")  # CDS call: End User Messaging RCS feedback
     except (ClientError, BotoCoreError) as err:
-        code = err.response.get("Error", {}).get("Code", "ClientError") if isinstance(err, ClientError) else type(err).__name__
+        code = err.response.get("Error", {}).get("Code", "ClientError") if isinstance(err, ClientError) else "transport:" + type(err).__name__  # transport: no AWS response
         log.error("PutMessageFeedback failed for %s (message %s): %s", item["recipient_id"], entry["provider_message_id"], code)
         ledger.mark_feedback(tbl, item["notice_id"], item["recipient_id"], code)
         return f"failed:{code}"

@@ -122,6 +122,19 @@ def test_feedback_failure_is_recorded_on_the_row_and_never_raises(row, monkeypat
     assert ledger.get_recipient(row, NOTICE, RID)["feedback_status"] == "ResourceNotFoundException"
 
 
+def test_transport_error_is_stored_as_no_aws_response(row, monkeypatch):
+    from botocore.exceptions import EndpointConnectionError
+
+    class OfflineClient:
+        def put_message_feedback(self, **kw):
+            raise EndpointConnectionError(endpoint_url="https://sms-voice.example.test")
+
+    monkeypatch.setattr(feedback.boto3, "client", lambda *a, **k: OfflineClient())
+    send(row, "rcs", "rcs-1")
+    rcs_twoway.handler(sns(postback_message()))
+    assert ledger.get_recipient(row, NOTICE, RID)["feedback_status"] == "transport:EndpointConnectionError"  # the card words this "no AWS response"
+
+
 def test_unexpected_error_in_the_loop_closer_does_not_fail_the_batch(row, monkeypatch):
     def boom(tbl, item):
         raise RuntimeError("ledger contention")
