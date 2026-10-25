@@ -1,9 +1,12 @@
 :root {
-  --bg: #f6f4ef;
+  --bg: #f5f6f8;
   --surface: #ffffff;
   --ink: #17202a;
   --muted: #55606b;
-  --line: #d9d5cb;
+  --line: #e3e6ea;
+  --line-strong: #cbd1d8; /* the edge of a white track or swatch on a white or off-white ground */
+  --code-bg: #f4f6f8;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px rgba(16, 24, 40, .04);
   --ack: #14774a;
   --read: #c98a0b;
   --delivered: #4a6f94;
@@ -13,7 +16,7 @@
   --focus: #0b57d0;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --bg: #12171c; --surface: #1b222a; --ink: #eef1f4; --muted: #a6b0ba; --line: #333d48; --notstarted: #1b222a; --sent: #6f8398; }
+  :root:not([data-theme="light"]) { --bg: #0f1419; --surface: #182029; --ink: #eef1f4; --muted: #a6b0ba; --line: #2a343f; --line-strong: #404c59; --code-bg: #121920; --shadow: 0 1px 2px rgba(0, 0, 0, .3); --notstarted: #182029; --sent: #6f8398; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; padding-bottom: 56px; }
@@ -32,11 +35,11 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .banner { background: #3a1c18; color: #f6c9c3; border-color: #5a2a24; } }
 main { max-width: 1280px; margin: 0 auto; padding: 28px 32px 0; }
 .hero { margin-bottom: 28px; }
-.bar-label { font-size: 44px; line-height: 1.15; font-weight: 700; margin: 0 0 14px; font-variant-numeric: tabular-nums; }
+.bar-label { font-size: 52px; line-height: 1; font-weight: 300; letter-spacing: -.02em; margin: 0 0 14px; font-variant-numeric: tabular-nums; } /* one element, so the whole line is styled together */
 .bar-count { margin: -6px 0 12px; font-size: 20px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .bar-count.pulse { animation: pulse 1.2s ease; color: var(--ack); font-weight: 700; }
 @keyframes pulse { 0% { transform: scale(1.12); } 100% { transform: none; } }
-.bar { display: flex; height: 64px; border: 1px solid var(--ink); border-radius: 6px; overflow: hidden; background: var(--notstarted); }
+.bar { display: flex; height: 64px; border: 1px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--notstarted); }
 .seg { height: 100%; transition: width .5s ease; min-width: 8px; } /* one recipient must stay visible on a 2,000 recipient bar */
 .seg.acknowledged { background: var(--ack); }
 .seg.read { background: var(--read); }
@@ -46,13 +49,14 @@ main { max-width: 1280px; margin: 0 auto; padding: 28px 32px 0; }
 .seg.not_started { background: var(--notstarted); }
 .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 26px; padding: 0; margin: 14px 0 0; color: var(--ink); }
 .legend li { display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
-.swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--ink); display: inline-block; }
+.swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line-strong); display: inline-block; }
 .swatch.acknowledged { background: var(--ack); } .swatch.read { background: var(--read); } .swatch.delivered { background: var(--delivered); }
 .swatch.sent { background: var(--sent); } .swatch.not_started { background: var(--notstarted); }
 .swatch.unreachable { background: repeating-linear-gradient(45deg, var(--unreachable), var(--unreachable) 3px, #c9645a 3px, #c9645a 6px); }
 .empty { font-size: 20px; color: var(--muted); margin: 14px 0 0; }
 .grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 24px; margin-bottom: 24px; }
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; box-shadow: var(--shadow); }
+.grid > *, .report-cols > * { min-width: 0; } /* a wide raw JSON block must scroll inside its panel, not widen the page at phone width */
 h2 { font-size: 18px; margin: 0 0 4px; }
 h3 { font-size: 15px; margin: 18px 0 6px; color: var(--muted); font-weight: 600; }
 .hint { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
@@ -65,20 +69,21 @@ h3 { font-size: 15px; margin: 18px 0 6px; color: var(--muted); font-weight: 600;
 .chan-cell .meter i { display: block; height: 100%; background: var(--delivered); }
 .chan-cell.ack .meter i { background: var(--ack); }
 .chan-cell.read .meter i { background: var(--read); }
-.device { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.device { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 .device-head { display: flex; justify-content: space-between; align-items: center; }
 .device-name { font-weight: 600; }
 .state { font-size: 14px; font-weight: 600; padding: 2px 10px; border-radius: 999px; border: 1px solid currentColor; }
 .state.acknowledged { color: var(--ack); } .state.read { color: var(--read); } .state.delivered { color: var(--delivered); }
 .state.sent, .state.none, .state.not_started { color: var(--muted); } .state.unreachable { color: var(--unreachable); }
 .events { list-style: none; margin: 10px 0 0; padding: 0; }
-.events li { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 6px 0; border-top: 1px dashed var(--line); font-size: 14px; }
-.events .when { color: var(--muted); font-variant-numeric: tabular-nums; }
-.events .what b { font-weight: 600; }
-.events .what small { color: var(--muted); display: block; word-break: break-all; }
+.events li { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 20px; } /* read on camera at 80 % zoom: sizes as before, line-height trimmed to keep the row height */
+.events .when { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.events .what b { font-weight: 500; }
+.events .what small { color: var(--muted); display: block; font-size: 12px; line-height: 16px; word-break: break-all; }
 details.raw { margin-top: 4px; }
-details.raw summary { cursor: pointer; color: var(--delivered); font-size: 13px; }
-pre.json { margin: 6px 0 0; padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; overflow: auto; max-height: 220px; }
+details.raw summary { cursor: pointer; color: var(--muted); font-size: 12px; transition: color .2s ease; }
+details.raw summary:hover { color: var(--ink); }
+pre.json { margin: 6px 0 0; padding: 12px 14px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; overflow: auto; max-height: 220px; }
 .slide { animation: slidein .35s ease; }
 @keyframes slidein { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .slide, .bar-count.pulse { animation: none; } .seg { transition: none; } }
@@ -94,7 +99,7 @@ table.exceptions td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--lin
 .last-line { font-size: 22px; font-weight: 700; margin: 18px 0 0; border-top: 2px solid var(--ink); padding-top: 12px; }
 footer.honesty { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 12px 32px; background: var(--ink); color: var(--bg); font-size: 15px; font-variant-numeric: tabular-nums; }
 .brand-foot { opacity: .7; letter-spacing: .08em; }
-@media (max-width: 900px) { .grid, .report-cols { grid-template-columns: 1fr; } .bar-label { font-size: 30px; } header.top { flex-wrap: wrap; padding: 12px 16px; } main { padding: 20px 16px 0; } footer.honesty { padding: 10px 16px; font-size: 13px; } }
+@media (max-width: 900px) { .grid, .report-cols { grid-template-columns: 1fr; } .bar-label { font-size: 30px; line-height: 1.15; } header.top { flex-wrap: wrap; padding: 12px 16px; } main { padding: 20px 16px 0; } footer.honesty { padding: 10px 16px; font-size: 13px; } }
 
 /* Rule clock on a live device card and the notice text panel.
    New elements only: square corners, hairline rules, no shadows, one moving element per block, tier colours untouched. */
