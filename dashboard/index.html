@@ -27,50 +27,55 @@
     <p class="empty" id="empty" hidden>No notice started. Sent is not proof; start one to see who knows.</p>
   </section>
 
-  <section class="texts" aria-label="Notice text">
-    <div class="texts-head">
-      <h2>Notice text</h2>
-      <span class="hint" id="texts-hint"></span>
-    </div>
-    <div class="texts-body" id="texts"></div>
-  </section>
-
-  <section class="grid">
-    <div class="panel" aria-label="Per channel">
-      <h2>By channel</h2>
-      <p class="hint">How far each message got on its own channel. Only a tap or a click counts as acknowledged.</p>
-      <div id="channels"></div>
-    </div>
-
-    <div class="panel" aria-label="Live devices">
-      <h2>Live devices</h2>
-      <p class="hint">Every row below is an event from AWS with a message id. Nothing is guessed.</p>
-      <div id="live"></div>
-    </div>
-  </section>
-
-  <section class="panel report" aria-label="Reach report">
-    <div class="report-head">
-      <h2>Reach report</h2>
-      <span class="hint" id="report-hint"></span>
-    </div>
-    <p class="headline" id="rep-headline"></p>
-    <p class="breakdown" id="rep-breakdown"></p>
-    <div class="report-cols">
-      <div>
-        <h3>Who still does not know</h3>
-        <table class="exceptions" id="rep-exceptions"><thead><tr><th>Recipient</th><th>State</th><th>Reason</th></tr></thead><tbody></tbody></table>
-        <p class="more" id="rep-more"></p>
+  <div class="layout">
+    <div class="col-side">
+      <div class="panel" aria-label="Per channel">
+        <h2>By channel</h2>
+        <p class="hint">How far each message got on its own channel. Only a tap or a click counts as acknowledged.</p>
+        <div id="channels"></div>
       </div>
-      <div>
-        <h3>Why they are unreachable</h3>
-        <ul class="reasons" id="rep-reasons"></ul>
-        <h3>What people are asking</h3>
-        <ul class="themes" id="rep-themes"></ul>
+
+      <section class="panel report" aria-label="Reach report">
+        <div class="report-head">
+          <h2>Reach report</h2>
+          <span class="hint" id="report-hint"></span>
+        </div>
+        <p class="headline" id="rep-headline"></p>
+        <p class="breakdown" id="rep-breakdown"></p>
+        <div class="report-cols">
+          <div>
+            <h3>Who still does not know</h3>
+            <div class="exc-scroll">
+              <table class="exceptions" id="rep-exceptions"><thead><tr><th>Recipient</th><th>State</th><th>Reason</th></tr></thead><tbody></tbody></table>
+            </div>
+            <p class="more" id="rep-more"></p>
+          </div>
+          <div>
+            <h3>Why they are unreachable</h3>
+            <ul class="reasons" id="rep-reasons"></ul>
+            <h3>What people are asking</h3>
+            <ul class="themes" id="rep-themes"></ul>
+          </div>
+        </div>
+        <p class="last-line" id="rep-last"></p>
+      </section>
+
+      <section class="texts" aria-label="Notice text">
+        <div class="texts-head">
+          <h2>Notice text</h2>
+          <span class="hint" id="texts-hint"></span>
+        </div>
+        <div class="texts-body" id="texts"></div>
+      </section>
+    </div>
+    <div class="col-main">
+      <div class="panel" aria-label="Live devices">
+        <h2>Live devices</h2>
+        <p class="hint">Every row below is an event from AWS with a message id. Nothing is guessed.</p>
+        <div id="live"></div>
       </div>
     </div>
-    <p class="last-line" id="rep-last"></p>
-  </section>
+  </div>
 </main>
 
 <footer class="honesty" id="footer" role="contentinfo">
