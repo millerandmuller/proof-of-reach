@@ -117,8 +117,9 @@ must reproduce the planned outcomes.
 
 - No claim is made about what counts as "notified" under any recall law. The ledger records what
   the providers reported.
-- WhatsApp inbound `button_reply` is handled according to Meta's webhook format; AWS does not
-  document it, so it still has to be confirmed on a live number (`scripts/dump_events.py --channel whatsapp`).
+- WhatsApp inbound `button_reply` follows Meta's webhook format, which AWS does not document. It was
+  confirmed on a live number on 27 October 2026: the tap arrived as `interactive.button_reply` with the
+  postback id and was counted as acknowledged (`scripts/dump_events.py --channel whatsapp` shows the payload).
 - WhatsApp free-form interactive messages need an open 24 hour customer window; outside it set
   `WHATSAPP_TEMPLATE_NAME` to an approved template with one quick reply button.
 - A new AWS account can have a Lambda limit of 10 concurrent executions. The consumers are
